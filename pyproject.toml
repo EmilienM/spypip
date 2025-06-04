@@ -1,0 +1,106 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spypip"
+dynamic = ["version"]
+description = "Python Packaging PR Analyzer - Find and analyze packaging changes in GitHub pull requests"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Emilien Macchi", email = "emacchi@redhat.com"},
+]
+maintainers = [
+    {name = "Emilien Macchi", email = "emacchi@redhat.com"},
+]
+keywords = [
+    "python",
+    "packaging",
+    "github",
+    "pull-requests",
+    "analysis",
+    "ai",
+    "dependencies",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Software Distribution",
+    "Topic :: Utilities",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.0.0",
+    "mcp>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/EmilienM/spypip"
+Repository = "https://github.com/EmilienM/spypip"
+Issues = "https://github.com/EmilienM/spypip/issues"
+
+[project.scripts]
+spypip = "spypip.__main__:main"
+
+[tool.hatch.version]
+path = "src/spypip/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spypip"]
+
+[tool.black]
+line-length = 88
+target-version = ["py311", "py312", "py313"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+warn_no_return = true
+warn_unreachable = false
+strict_equality = true
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+]
