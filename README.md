@@ -23,6 +23,16 @@ pip install -r requirements.txt
 ```
 
 3. Set up environment variables:
+
+**Option A: Using .env file (recommended)**
+```bash
+# Copy the example file and edit it with your values
+cp .env.example .env
+# Edit .env with your favorite editor
+nano .env
+```
+
+**Option B: Using shell environment variables**
 ```bash
 export OPENAI_API_KEY="your-openai-api-key"
 export GITHUB_PERSONAL_ACCESS_TOKEN="your-github-token"
@@ -57,14 +67,25 @@ SpyPip will:
 
 ## Environment Variables
 
+SpyPip supports loading environment variables from `.env` files. It searches for `.env` files in the following order:
+1. Current working directory
+2. User's home directory
+3. Project root directory
+
+**Required Variables:**
 - `OPENAI_API_KEY`: Required for AI summary generation
 - `GITHUB_PERSONAL_ACCESS_TOKEN`: Required for GitHub API access
-- `OPENAI_ENDPOINT_URL`: Optional. Override the default OpenAI inference server URL (defaults to `https://models.github.ai/inference`)
+
+**Optional Variables:**
+- `OPENAI_ENDPOINT_URL`: Override the default OpenAI inference server URL (defaults to `https://models.github.ai/inference`)
+
+**Note:** Environment variables set in your shell will take precedence over those in `.env` files.
 
 ## Dependencies
 
 - `openai`: For AI-powered analysis
 - `mcp`: Model Context Protocol for GitHub integration
+- `python-dotenv`: For loading environment variables from .env files
 - Standard library modules for async operations and data handling
 
 ## Contributing
