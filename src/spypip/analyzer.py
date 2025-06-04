@@ -62,9 +62,10 @@ class PackagingPRAnalyzer:
     def __init__(self, repo_owner: str, repo_name: str, openai_api_key: str):
         self.repo_owner = repo_owner
         self.repo_name = repo_name
-        self.openai_client = openai.OpenAI(
-            api_key=openai_api_key, base_url="https://models.github.ai/inference"
+        base_url = os.getenv(
+            "OPENAI_ENDPOINT_URL", "https://models.github.ai/inference"
         )
+        self.openai_client = openai.OpenAI(api_key=openai_api_key, base_url=base_url)
         self.mcp_client: Optional[Any] = None
         self.mcp_session: Optional[ClientSession] = None
 

@@ -26,6 +26,8 @@ pip install -r requirements.txt
 ```bash
 export OPENAI_API_KEY="your-openai-api-key"
 export GITHUB_PERSONAL_ACCESS_TOKEN="your-github-token"
+# Optional: Override the default OpenAI endpoint
+export OPENAI_ENDPOINT_URL="https://your-custom-inference-server.com"
 ```
 
 ## Usage
@@ -57,6 +59,7 @@ SpyPip will:
 
 - `OPENAI_API_KEY`: Required for AI summary generation
 - `GITHUB_PERSONAL_ACCESS_TOKEN`: Required for GitHub API access
+- `OPENAI_ENDPOINT_URL`: Optional. Override the default OpenAI inference server URL (defaults to `https://models.github.ai/inference`)
 
 ## Dependencies
 
