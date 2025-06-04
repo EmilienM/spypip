@@ -29,3 +29,4 @@ __pycache__/
 /overrides/
 /docs/_build/
 /docs/example/bootstrap-output
+.env
