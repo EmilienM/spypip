@@ -12,7 +12,7 @@ import sys
 from .analyzer import PackagingPRAnalyzer
 
 
-async def main():
+async def async_main():
     if len(sys.argv) < 2:
         print("Usage: python -m spypip <owner>/<repo>")
         print("Example: python -m spypip vllm-project/vllm")
@@ -45,5 +45,10 @@ async def main():
         analyzer.print_results(results)
 
 
+def main():
+    """Synchronous entry point for the spypip command."""
+    asyncio.run(async_main())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
