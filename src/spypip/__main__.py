@@ -31,9 +31,10 @@ async def async_main():
 
     # Get required environment variables
     openai_api_key = get_required_env_var("OPENAI_API_KEY")
-    github_token = get_required_env_var(
+    # Ensure GitHub token is available (used by the analyzer internally)
+    get_required_env_var(
         "GITHUB_PERSONAL_ACCESS_TOKEN",
-        "This is required for the GitHub MCP server to authenticate with GitHub API"
+        "This is required for the GitHub MCP server to authenticate with GitHub API",
     )
 
     # Run the analysis

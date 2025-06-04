@@ -10,7 +10,11 @@ __author__ = "Emilien Macchi"
 __email__ = "emacchi@redhat.com"
 
 from .analyzer import PackagingPRAnalyzer, PackagingChange, PRSummary
-from .config import load_environment_variables, get_required_env_var, get_optional_env_var
+from .config import (
+    load_environment_variables,
+    get_required_env_var,
+    get_optional_env_var,
+)
 
 __all__ = [
     "PackagingPRAnalyzer",
