@@ -65,6 +65,7 @@ class PackagingPRAnalyzer:
         base_url = os.getenv(
             "OPENAI_ENDPOINT_URL", "https://models.github.ai/inference"
         )
+        self.model_name = os.getenv("MODEL_NAME", "openai/gpt-4.1")
         self.openai_client = openai.OpenAI(api_key=openai_api_key, base_url=base_url)
         self.mcp_client: Optional[Any] = None
         self.mcp_session: Optional[ClientSession] = None
@@ -225,11 +226,30 @@ Please provide a clear, concise summary of the packaging implications of this PR
 
         try:
             response = self.openai_client.chat.completions.create(
-                model="openai/gpt-4.1",
+                model=self.model_name,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert in Python packaging and dependency management. Analyze pull requests for packaging-related changes.",
+                        "content": """You are an expert Python packaging and dependency management analyst specializing in analyzing GitHub pull requests for packaging-related changes. Your role is to provide clear, actionable insights about how changes to packaging files impact project dependencies, build processes, and deployment.
+
+Key areas of expertise:
+- Python packaging files: requirements.txt, pyproject.toml, setup.py, setup.cfg, poetry.lock, Pipfile
+- Build and dependency management: pip, poetry, conda, tox configurations
+- Containerization: Dockerfiles, Containerfiles, and container-specific requirements
+- Version constraints and dependency resolution conflicts
+- Security implications of dependency updates
+- Performance and compatibility impacts of package changes
+
+When analyzing pull requests, focus on:
+1. **Dependency Changes**: New packages added, removed, or updated with version implications
+2. **Version Constraints**: Changes to version pinning, ranges, or compatibility requirements
+3. **Build Configuration**: Modifications to build tools, scripts, or packaging metadata
+4. **Environment Management**: Changes to virtual environments, conda environments, or containerization
+5. **Security & Compliance**: Dependency vulnerabilities, license changes, or policy violations
+6. **Performance Impact**: Dependencies that may affect runtime performance or bundle size
+7. **Breaking Changes**: Updates that may introduce compatibility issues or require code changes
+
+Provide concise, technical summaries that help developers understand the packaging implications and potential risks or benefits of the proposed changes.""",
                     },
                     {"role": "user", "content": prompt},
                 ],
