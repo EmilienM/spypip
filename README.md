@@ -12,7 +12,24 @@ SpyPip is a tool that analyzes GitHub repositories to find open pull requests th
 - 🔗 **GitHub Integration**: Seamlessly integrates with GitHub API via MCP (Model Context Protocol)
 - 🧠 **Reasoning Model Support**: Compatible with reasoning models that include thinking steps in responses
 
-## Installation
+## Quickstart
+
+1. Create .env file:
+
+```bash
+# Copy the example file and edit it with your values
+cp .env.example .env
+# Edit .env with your favorite editor
+vi .env
+```
+
+2. Run SpyPip
+
+```bash
+podman run --name spypip --env-file .env --rm -it quay.io/emilien/spypip:latest ROCm/aotriton
+```
+
+## Install and run locally
 
 1. Clone the repository:
 ```bash
@@ -22,7 +39,7 @@ cd spypip
 
 2. Install dependencies:
 ```bash
-pip install -r requirements.txt
+pip install -e .
 ```
 
 3. Set up environment variables:
