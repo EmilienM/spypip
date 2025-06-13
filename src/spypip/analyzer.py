@@ -281,20 +281,44 @@ Provide concise, technical summaries that help developers understand the packagi
         if not content:
             return content
 
-        # Common reasoning tags used by various models
-        reasoning_patterns = [
+        # Common reasoning tags used by various models (properly closed tags)
+        closed_tag_patterns = [
             r'<thinking>.*?</thinking>',
             r'<reasoning>.*?</reasoning>',
             r'<analysis>.*?</analysis>',
             r'<internal_thought>.*?</internal_thought>',
             r'<think>.*?</think>',
-            r'<reason>.*?</reason>'
+            r'<reason>.*?</reason>',
+            # Additional variations for think tags
+            r'<think[^>]*>.*?</think>',  # think tags with attributes
+            r'<THINK>.*?</THINK>',       # uppercase variants
+            r'<Think>.*?</Think>',       # title case variants
         ]
 
-        # Remove all reasoning blocks
+        # Remove all properly closed reasoning blocks first
         cleaned_content = content
-        for pattern in reasoning_patterns:
+        for pattern in closed_tag_patterns:
             cleaned_content = re.sub(pattern, '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
+
+        # Handle unclosed tags - look for opening tags without closing tags
+        # This handles cases like: <think>\nsome reasoning text\n\nActual response here
+        unclosed_patterns = [
+            r'<think[^>]*>\s*.*?(?=\n\n[A-Z])',  # unclosed think tag until double newline + capital letter
+            r'<thinking[^>]*>\s*.*?(?=\n\n[A-Z])',  # unclosed thinking tag
+            r'<reasoning[^>]*>\s*.*?(?=\n\n[A-Z])',  # unclosed reasoning tag
+            r'<analysis[^>]*>\s*.*?(?=\n\n[A-Z])',  # unclosed analysis tag
+        ]
+
+        for pattern in unclosed_patterns:
+            cleaned_content = re.sub(pattern, '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
+
+        # Special handling: if content starts with an unclosed tag and has a clear break,
+        # extract everything after the first substantial paragraph break
+        if re.match(r'^\s*<(think|thinking|reasoning|analysis)', cleaned_content, re.IGNORECASE):
+            # Look for the first occurrence of double newline followed by actual content
+            match = re.search(r'\n\n\s*([A-Z][^<\n].*)', cleaned_content, re.DOTALL)
+            if match:
+                cleaned_content = match.group(1)
 
         # Clean up any extra whitespace and newlines
         cleaned_content = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_content)

@@ -150,3 +150,54 @@ This PR includes:
         assert "**Dependency Updates**:" in result
         assert "1." in result and "2." in result
         assert "**Risk Assessment**:" in result
+
+    def test_extract_final_response_with_unclosed_think_tags(self):
+        """Test extraction from content with unclosed think tags."""
+        content = """<think>
+Let me analyze this PR step by step.
+This seems to be a dependency update.
+
+This PR updates the requirements.txt file to include newer versions of critical dependencies."""
+
+        result = self.analyzer._extract_final_response(content)
+        expected = "This PR updates the requirements.txt file to include newer versions of critical dependencies."
+        assert result == expected
+
+    def test_extract_final_response_with_think_attributes(self):
+        """Test extraction from content with think tags that have attributes."""
+        content = """<think type="analysis">
+I need to check what's being changed in the pyproject.toml file.
+The changes show version updates for several packages.
+</think>
+
+This PR updates several development dependencies in pyproject.toml, including pytest and black formatting tool."""
+
+        result = self.analyzer._extract_final_response(content)
+        expected = "This PR updates several development dependencies in pyproject.toml, including pytest and black formatting tool."
+        assert result == expected
+
+    def test_extract_final_response_with_uppercase_think_tags(self):
+        """Test extraction from content with uppercase THINK tags."""
+        content = """<THINK>
+What are the security implications of this change?
+The update looks like it addresses known vulnerabilities.
+</THINK>
+
+Security update: This PR addresses CVE-2023-12345 by updating the vulnerable package from 1.0.0 to 1.2.3."""
+
+        result = self.analyzer._extract_final_response(content)
+        expected = "Security update: This PR addresses CVE-2023-12345 by updating the vulnerable package from 1.0.0 to 1.2.3."
+        assert result == expected
+
+    def test_extract_final_response_with_title_case_think_tags(self):
+        """Test extraction from content with title case Think tags."""
+        content = """<Think>
+This appears to be a routine maintenance update.
+Let me check if there are any breaking changes.
+</Think>
+
+Routine maintenance: Updates multiple dependencies to their latest stable versions with no breaking changes expected."""
+
+        result = self.analyzer._extract_final_response(content)
+        expected = "Routine maintenance: Updates multiple dependencies to their latest stable versions with no breaking changes expected."
+        assert result == expected
