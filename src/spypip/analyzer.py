@@ -258,11 +258,53 @@ Provide concise, technical summaries that help developers understand the packagi
             )
 
             content = response.choices[0].message.content
-            return content.strip() if content else "No summary generated"
+            if content:
+                # Handle reasoning models that include reasoning steps
+                final_content = self._extract_final_response(content)
+                return final_content.strip()
+            else:
+                return "No summary generated"
 
         except Exception as e:
             print(f"Error generating AI summary: {e}")
             return f"Error generating summary: {str(e)}"
+
+    def _extract_final_response(self, content: str) -> str:
+        """
+        Extract the final response from reasoning model output.
+
+        Reasoning models often include reasoning steps wrapped in tags like:
+        <thinking>...</thinking> or <reasoning>...</reasoning>
+
+        This method extracts only the final answer that comes after these reasoning blocks.
+        """
+        if not content:
+            return content
+
+        # Common reasoning tags used by various models
+        reasoning_patterns = [
+            r'<thinking>.*?</thinking>',
+            r'<reasoning>.*?</reasoning>',
+            r'<analysis>.*?</analysis>',
+            r'<internal_thought>.*?</internal_thought>',
+            r'<think>.*?</think>',
+            r'<reason>.*?</reason>'
+        ]
+
+        # Remove all reasoning blocks
+        cleaned_content = content
+        for pattern in reasoning_patterns:
+            cleaned_content = re.sub(pattern, '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
+
+        # Clean up any extra whitespace and newlines
+        cleaned_content = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_content)
+        cleaned_content = cleaned_content.strip()
+
+        # If the cleaned content is empty or too short, return original
+        if len(cleaned_content.strip()) < 10:
+            return content
+
+        return cleaned_content
 
     async def analyze_repository(self) -> List[PRSummary]:
         print(f"Starting analysis of {self.repo_owner}/{self.repo_name}")
