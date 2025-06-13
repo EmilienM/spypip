@@ -7,7 +7,7 @@ SpyPip is a tool that analyzes GitHub repositories to find open pull requests th
 ## Features
 
 - 🔍 **Smart Detection**: Automatically identifies PRs that modify packaging files (requirements.txt, pyproject.toml, setup.py, Dockerfiles, etc.)
-- 🤖 **AI Summaries**: Uses OpenAI GPT to generate concise summaries of packaging changes
+- 🤖 **AI Summaries**: Leverages LLM to generate concise summaries of packaging changes
 - 📊 **Comprehensive Analysis**: Analyzes dependencies, build configurations, containerization changes, and version constraints
 - 🔗 **GitHub Integration**: Seamlessly integrates with GitHub API via MCP (Model Context Protocol)
 - 🧠 **Reasoning Model Support**: Compatible with reasoning models that include thinking steps in responses
@@ -32,7 +32,7 @@ pip install -r requirements.txt
 # Copy the example file and edit it with your values
 cp .env.example .env
 # Edit .env with your favorite editor
-nano .env
+vi .env
 ```
 
 **Option B: Using shell environment variables**
@@ -84,25 +84,6 @@ SpyPip supports loading environment variables from `.env` files. It searches for
 - `MODEL_NAME`: Specify the model to use for AI analysis (defaults to `openai/gpt-4.1`)
 
 **Note:** Environment variables set in your shell will take precedence over those in `.env` files.
-
-## Reasoning Model Support
-
-SpyPip includes built-in support for reasoning models that include thinking or reasoning steps in their responses. These models often wrap their internal reasoning in tags such as:
-
-- `<thinking>...</thinking>`
-- `<reasoning>...</reasoning>`
-- `<analysis>...</analysis>`
-- `<internal_thought>...</internal_thought>`
-
-SpyPip automatically detects and extracts only the final response, filtering out the reasoning steps to provide clean, actionable summaries. This ensures compatibility with both standard and reasoning-based language models without any additional configuration.
-The tool will automatically handle the response parsing regardless of whether the model includes reasoning steps or not.
-
-## Dependencies
-
-- `openai`: For AI-powered analysis
-- `mcp`: Model Context Protocol for GitHub integration
-- `python-dotenv`: For loading environment variables from .env files
-- Standard library modules for async operations and data handling
 
 ## Contributing
 
