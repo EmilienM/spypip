@@ -85,7 +85,7 @@ SpyPip supports loading environment variables from `.env` files. It searches for
 
 ## Reasoning Model Support
 
-SpyPip includes built-in support for reasoning models that include thinking or reasoning steps in their responses. These models (like `deepseek-r1-distill-qwen-14b`) often wrap their internal reasoning in tags such as:
+SpyPip includes built-in support for reasoning models that include thinking or reasoning steps in their responses. These models often wrap their internal reasoning in tags such as:
 
 - `<thinking>...</thinking>`
 - `<reasoning>...</reasoning>`
@@ -93,13 +93,6 @@ SpyPip includes built-in support for reasoning models that include thinking or r
 - `<internal_thought>...</internal_thought>`
 
 SpyPip automatically detects and extracts only the final response, filtering out the reasoning steps to provide clean, actionable summaries. This ensures compatibility with both standard and reasoning-based language models without any additional configuration.
-
-To use a reasoning model, simply set the `MODEL_NAME` environment variable:
-
-```bash
-export MODEL_NAME="deepseek-r1-distill-qwen-14b"
-```
-
 The tool will automatically handle the response parsing regardless of whether the model includes reasoning steps or not.
 
 ## Dependencies
