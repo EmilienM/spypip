@@ -5,6 +5,7 @@ SpyPip - Python Packaging PR Analyzer
 Entry point for running SpyPip as a module.
 """
 
+import argparse
 import asyncio
 import sys
 
@@ -12,22 +13,45 @@ from .analyzer import PackagingPRAnalyzer
 from .config import load_environment_variables, get_required_env_var
 
 
+def parse_arguments():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="SpyPip - Python Packaging PR Analyzer",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python -m spypip vllm-project/vllm
+  python -m spypip vllm-project/vllm --patches-dir ./patches
+        """,
+    )
+
+    parser.add_argument(
+        "repository",
+        help="Repository in format 'owner/repo' (e.g., vllm-project/vllm)",
+    )
+
+    parser.add_argument(
+        "--patches-dir",
+        type=str,
+        help="Path to directory containing patch files. When specified, SpyPip will read these files and override the default list of packaging files to look for PRs touching these files.",
+    )
+
+    return parser.parse_args()
+
+
 async def async_main():
     # Load environment variables from .env file if it exists
     load_environment_variables()
 
-    if len(sys.argv) < 2:
-        print("Usage: python -m spypip <owner>/<repo>")
-        print("Example: python -m spypip vllm-project/vllm")
-        sys.exit(1)
+    args = parse_arguments()
 
-    repo_arg = sys.argv[1]
-    if "/" not in repo_arg:
+    # Parse repository argument
+    if "/" not in args.repository:
         print("Error: Repository must be in format 'owner/repo'")
         print("Example: python -m spypip vllm-project/vllm")
         sys.exit(1)
 
-    repo_owner, repo_name = repo_arg.split("/", 1)
+    repo_owner, repo_name = args.repository.split("/", 1)
 
     # Get required environment variables
     openai_api_key = get_required_env_var("OPENAI_API_KEY")
@@ -38,7 +62,9 @@ async def async_main():
     )
 
     # Run the analysis
-    async with PackagingPRAnalyzer(repo_owner, repo_name, openai_api_key) as analyzer:
+    async with PackagingPRAnalyzer(
+        repo_owner, repo_name, openai_api_key, patches_dir=args.patches_dir
+    ) as analyzer:
         results = await analyzer.analyze_repository()
         analyzer.print_results(results)
 

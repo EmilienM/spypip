@@ -10,7 +10,8 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, cast
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Set, cast
 
 import openai
 from mcp import ClientSession, StdioServerParameters
@@ -59,9 +60,16 @@ class PackagingPRAnalyzer:
         r".*\/requirements\/.*\.txt$",
     ]
 
-    def __init__(self, repo_owner: str, repo_name: str, openai_api_key: str):
+    def __init__(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        openai_api_key: str,
+        patches_dir: Optional[str] = None,
+    ):
         self.repo_owner = repo_owner
         self.repo_name = repo_name
+        self.patches_dir = patches_dir
         base_url = os.getenv(
             "OPENAI_ENDPOINT_URL", "https://models.github.ai/inference"
         )
@@ -69,6 +77,12 @@ class PackagingPRAnalyzer:
         self.openai_client = openai.OpenAI(api_key=openai_api_key, base_url=base_url)
         self.mcp_client: Optional[Any] = None
         self.mcp_session: Optional[ClientSession] = None
+
+        # Initialize file patterns - use patch files if provided, otherwise use defaults
+        self.patch_file_paths: Set[str] = (
+            set()
+        )  # Will be populated if patches_dir is used
+        self.file_patterns = self._load_file_patterns()
 
     async def __aenter__(self):
         github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
@@ -90,8 +104,102 @@ class PackagingPRAnalyzer:
         if self.mcp_client:
             await self.mcp_client.__aexit__(exc_type, exc_val, exc_tb)
 
-    def is_packaging_file(self, file_path: str) -> bool:
-        for pattern in self.PACKAGING_PATTERNS:
+    def _load_file_patterns(self) -> List[str]:
+        """
+        Load file patterns from patch files if patches_dir is provided,
+        otherwise return the default packaging patterns.
+        """
+        if not self.patches_dir:
+            return self.PACKAGING_PATTERNS
+
+        patches_path = Path(self.patches_dir)
+        if not patches_path.exists():
+            print(
+                f"Warning: Patches directory '{self.patches_dir}' does not exist. Using default patterns."
+            )
+            return self.PACKAGING_PATTERNS
+
+        if not patches_path.is_dir():
+            print(
+                f"Warning: Patches path '{self.patches_dir}' is not a directory. Using default patterns."
+            )
+            return self.PACKAGING_PATTERNS
+
+        print(f"Loading file patterns from patches directory: {self.patches_dir}")
+        file_paths = self._extract_file_paths_from_patches(patches_path)
+
+        if not file_paths:
+            print(
+                "Warning: No file paths found in patch files. Using default patterns."
+            )
+            return self.PACKAGING_PATTERNS
+
+        print(f"Found {len(file_paths)} file paths in patches")
+        # Store the exact file paths - we'll match them directly
+        self.patch_file_paths = file_paths
+        return []  # Return empty list since we'll use exact path matching
+
+    def _extract_file_paths_from_patches(self, patches_path: Path) -> Set[str]:
+        """
+        Extract file paths from patch files in the given directory.
+
+        Patch files can be in various formats:
+        - Git patch files (.patch, .diff)
+        - Plain text files containing file paths (one per line)
+        """
+        file_paths = set()
+
+        # Look for patch files and text files
+        patch_extensions = {".patch", ".diff", ".txt"}
+
+        for patch_file in patches_path.iterdir():
+            if not patch_file.is_file():
+                continue
+
+            if patch_file.suffix.lower() not in patch_extensions:
+                continue
+
+            try:
+                with open(patch_file, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+
+                # Extract file paths from different patch formats
+                if patch_file.suffix.lower() in {".patch", ".diff"}:
+                    # Git patch format: look for "--- a/file" and "+++ b/file" lines
+                    git_paths = re.findall(
+                        r"^[+-]{3}\s+[ab]/(.+)$", content, re.MULTILINE
+                    )
+                    file_paths.update(git_paths)
+
+                    # Also look for "diff --git a/file b/file" lines
+                    git_diff_paths = re.findall(
+                        r"^diff --git a/(.+)\s+b/", content, re.MULTILINE
+                    )
+                    file_paths.update(git_diff_paths)
+
+                else:
+                    # Plain text format: each line is a file path
+                    lines = content.strip().split("\n")
+                    for line in lines:
+                        line = line.strip()
+                        if line and not line.startswith(
+                            "#"
+                        ):  # Skip empty lines and comments
+                            file_paths.add(line)
+
+            except Exception as e:
+                print(f"Warning: Could not read patch file '{patch_file}': {e}")
+                continue
+
+        return file_paths
+
+    def is_patched(self, file_path: str) -> bool:
+        # If we have patch file paths, check for exact matches only
+        if self.patch_file_paths:
+            return file_path in self.patch_file_paths
+
+        # Fall back to default pattern matching
+        for pattern in self.file_patterns:
             if re.search(pattern, file_path, re.IGNORECASE):
                 return True
         return False
@@ -169,7 +277,7 @@ class PackagingPRAnalyzer:
         for file_info in files:
             file_path = file_info.get("filename", "")
 
-            if self.is_packaging_file(file_path):
+            if self.is_patched(file_path):
                 change = PackagingChange(
                     file_path=file_path,
                     change_type=file_info.get("status", "modified"),
@@ -350,7 +458,16 @@ Provide concise, technical summaries that help developers understand the packagi
             if pr_summary:
                 packaging_prs.append(pr_summary)
 
-        print(f"Found {len(packaging_prs)} PRs with packaging changes")
+        if self.patches_dir:
+            print(
+                f"Found {len(packaging_prs)} PRs touching files from patches directory"
+            )
+            if self.patch_file_paths:
+                print("Monitored files:")
+                for file_path in sorted(self.patch_file_paths):
+                    print(f"  - {file_path}")
+        else:
+            print(f"Found {len(packaging_prs)} PRs with packaging changes")
 
         for pr_summary in packaging_prs:
             pr_summary.ai_summary = self.generate_ai_summary(pr_summary)
@@ -361,6 +478,16 @@ Provide concise, technical summaries that help developers understand the packagi
         print("\n" + "=" * 80)
         print("PYTHON PACKAGING PR ANALYSIS RESULTS")
         print("=" * 80)
+
+        # Show information about file patterns being used
+        if self.patches_dir:
+            print(f"Using custom file paths from patches directory: {self.patches_dir}")
+            print(f"Monitoring {len(self.patch_file_paths)} specific file paths")
+        else:
+            print(
+                f"Using default packaging file patterns ({len(self.file_patterns)} patterns)"
+            )
+        print("-" * 40)
 
         if not results:
             print("No open PRs with packaging changes found.")

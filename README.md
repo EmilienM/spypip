@@ -7,6 +7,7 @@ SpyPip is a tool that analyzes GitHub repositories to find open pull requests th
 ## Features
 
 - 🔍 **Smart Detection**: Automatically identifies PRs that modify packaging files (requirements.txt, pyproject.toml, setup.py, Dockerfiles, etc.)
+- 🎯 **Custom File Monitoring**: Override default patterns by providing patch files with custom file paths to monitor
 - 🤖 **AI Summaries**: Leverages LLM to generate concise summaries of packaging changes
 - 📊 **Comprehensive Analysis**: Analyzes dependencies, build configurations, containerization changes, and version constraints
 - 🔗 **GitHub Integration**: Seamlessly integrates with GitHub API via MCP (Model Context Protocol)
@@ -27,6 +28,15 @@ vi .env
 
 ```bash
 podman run --name spypip --env-file .env --rm -it quay.io/emilien/spypip:latest ROCm/aotriton
+```
+
+or
+
+```bash
+podman run --name spypip --env-file .env --rm -it \
+  -v ./my-patches:/patches:ro,Z \
+  quay.io/emilien/spypip:latest \
+  ROCm/aotriton --patches-dir /patches
 ```
 
 ## Install and run locally
@@ -72,6 +82,47 @@ For example:
 ```bash
 python -m spypip vllm-project/vllm
 ```
+
+### Custom File Monitoring with Patch Files
+
+You can override the default list of packaging files by providing a directory containing patch files:
+
+```bash
+python -m spypip owner/repository-name --patches-dir /path/to/patches
+```
+
+The patches directory can contain:
+
+**Git patch files (.patch, .diff):**
+```bash
+# example_patches/changes.patch
+diff --git a/custom-requirements.txt b/custom-requirements.txt
+index 1234567..abcdefg 100644
+--- a/custom-requirements.txt
++++ b/custom-requirements.txt
+@@ -1,3 +1,4 @@
+ flask==2.0.0
+ requests==2.28.0
++numpy==1.21.0
+ pytest==7.1.0
+```
+
+**Plain text files (.txt) with file paths:**
+```bash
+# example_patches/file_list.txt
+# Custom packaging files to monitor
+project/requirements-dev.txt
+deployment/Containerfile.prod
+config/environment-staging.yml
+build-constraints.txt
+```
+
+When using `--patches-dir`, SpyPip will:
+1. Read all `.patch`, `.diff`, and `.txt` files in the specified directory
+2. Extract exact file paths from git patches or plain text lists
+3. Monitor PRs that touch exactly these file paths (no pattern matching)
+4. Use exact path matching instead of the default packaging file patterns
+5. Display a custom message showing which files are being monitored
 
 ## Output
 
