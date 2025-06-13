@@ -1,5 +1,7 @@
 # SpyPip - Python Packaging PR Analyzer
 
+![SpyPip Logo](logo.png)
+
 SpyPip is a tool that analyzes GitHub repositories to find open pull requests that touch Python packaging files and provides AI-powered summaries of packaging-related changes.
 
 ## Features
