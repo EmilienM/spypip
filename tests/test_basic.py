@@ -1,7 +1,7 @@
 """Basic tests for spypip package."""
 
 import pytest
-from spypip import __version__, PackagingPRAnalyzer, PackagingChange, PRSummary
+from spypip import __version__, PackagingVersionAnalyzer, PackagingChange, CommitSummary
 
 
 def test_version():
@@ -11,9 +11,9 @@ def test_version():
 
 def test_imports():
     """Test that main classes can be imported."""
-    assert PackagingPRAnalyzer is not None
+    assert PackagingVersionAnalyzer is not None
     assert PackagingChange is not None
-    assert PRSummary is not None
+    assert CommitSummary is not None
 
 
 def test_packaging_change_dataclass():
@@ -32,18 +32,20 @@ def test_packaging_change_dataclass():
     assert change.patch == "@@ -1,3 +1,3 @@\n test patch"
 
 
-def test_pr_summary_dataclass():
-    """Test PRSummary can be instantiated."""
-    summary = PRSummary(
-        number=123,
-        title="Test PR",
+def test_commit_summary_dataclass():
+    """Test CommitSummary can be instantiated."""
+    summary = CommitSummary(
+        sha="abc123def456",
+        title="Test commit",
         author="testuser",
-        url="https://github.com/test/repo/pull/123",
+        url="https://github.com/test/repo/commit/abc123def456",
+        date="2024-01-01T12:00:00Z",
         packaging_changes=[]
     )
-    assert summary.number == 123
-    assert summary.title == "Test PR"
+    assert summary.sha == "abc123def456"
+    assert summary.title == "Test commit"
     assert summary.author == "testuser"
-    assert summary.url == "https://github.com/test/repo/pull/123"
+    assert summary.url == "https://github.com/test/repo/commit/abc123def456"
+    assert summary.date == "2024-01-01T12:00:00Z"
     assert summary.packaging_changes == []
     assert summary.ai_summary is None

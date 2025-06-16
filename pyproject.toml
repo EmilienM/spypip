@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "spypip"
 dynamic = ["version"]
-description = "Python Packaging PR Analyzer - Find and analyze packaging changes in GitHub pull requests"
+description = "Python Packaging Version Analyzer - Find and analyze packaging changes between Git tags/versions"
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [
@@ -18,7 +18,8 @@ keywords = [
     "python",
     "packaging",
     "github",
-    "pull-requests",
+    "version-comparison",
+    "git-tags",
     "analysis",
     "ai",
     "dependencies",

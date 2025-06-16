@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Python Packaging PR Analyzer
+Python Packaging Version Analyzer
 
-This script finds open pull requests that touch Python packaging files
+This script compares commits between two versions/tags to find packaging changes
 and uses an LLM to summarize packaging-related changes.
 """
 
@@ -28,16 +28,17 @@ class PackagingChange:
 
 
 @dataclass
-class PRSummary:
-    number: int
+class CommitSummary:
+    sha: str
     title: str
     author: str
     url: str
+    date: str
     packaging_changes: List[PackagingChange]
     ai_summary: Optional[str] = None
 
 
-class PackagingPRAnalyzer:
+class PackagingVersionAnalyzer:
     PACKAGING_PATTERNS = [
         r"requirements.*\.txt$",
         r".*requirements.*\.txt$",
@@ -204,74 +205,146 @@ class PackagingPRAnalyzer:
                 return True
         return False
 
-    async def get_open_prs(self) -> List[Dict[str, Any]]:
-        print(f"Fetching open PRs for {self.repo_owner}/{self.repo_name}...")
+    async def get_latest_tag(self) -> Optional[str]:
+        """Get the latest tag from the repository."""
+        try:
+            if self.mcp_session is None:
+                return None
+            result = await self.mcp_session.call_tool(
+                "list_tags",
+                {
+                    "owner": self.repo_owner,
+                    "repo": self.repo_name,
+                    "perPage": 1,
+                },
+            )
+
+            if hasattr(result, "content") and result.content:
+                first_content = result.content[0]
+                if hasattr(first_content, "text"):
+                    data = json.loads(first_content.text)
+                    if isinstance(data, list) and len(data) > 0:
+                        return str(data[0]["name"])
+            return None
+
+        except Exception as e:
+            print(f"Error fetching latest tag: {e}")
+            return None
+
+    async def get_commits_between_refs(
+        self, from_ref: str, to_ref: str
+    ) -> List[Dict[str, Any]]:
+        """Get commits between two references (tags/branches)."""
+        print(
+            f"Fetching commits between {from_ref} and {to_ref} for {self.repo_owner}/{self.repo_name}..."
+        )
 
         try:
             if self.mcp_session is None:
                 return []
+
+            # Get commits from the to_ref branch, then filter by date/commits after from_ref
             result = await self.mcp_session.call_tool(
-                "list_pull_requests",
+                "list_commits",
                 {
                     "owner": self.repo_owner,
                     "repo": self.repo_name,
-                    "state": "open",
+                    "sha": to_ref,
                     "perPage": 100,
                 },
             )
 
             if hasattr(result, "content") and result.content:
-                # Type guard to ensure we have text content
                 first_content = result.content[0]
                 if hasattr(first_content, "text"):
                     data = json.loads(first_content.text)
                     if isinstance(data, list):
-                        return cast(List[Dict[str, Any]], data)
-                    elif isinstance(data, dict):
-                        result_data = data.get("data", data.get("pull_requests", []))
-                        return cast(List[Dict[str, Any]], result_data)
+                        all_commits = cast(List[Dict[str, Any]], data)
+
+                        # Get the commit SHA for from_ref to know where to stop
+                        from_commit = await self.get_commit_info(from_ref)
+                        if from_commit:
+                            from_sha = from_commit["sha"]
+                            # Filter commits to only include those after from_ref
+                            filtered_commits = []
+                            for commit in all_commits:
+                                if commit["sha"] == from_sha:
+                                    break
+                                filtered_commits.append(commit)
+                            return filtered_commits
+                        else:
+                            return all_commits
             return []
 
         except Exception as e:
-            print(f"Error fetching PRs: {e}")
+            print(f"Error fetching commits: {e}")
             return []
 
-    async def get_pr_files(self, pr_number: int) -> List[Dict[str, Any]]:
+    async def get_commit_info(self, ref: str) -> Optional[Dict[str, Any]]:
+        """Get information about a specific commit/tag/branch."""
         try:
             if self.mcp_session is None:
-                return []
+                return None
             result = await self.mcp_session.call_tool(
-                "get_pull_request_files",
+                "get_commit",
                 {
                     "owner": self.repo_owner,
                     "repo": self.repo_name,
-                    "pullNumber": pr_number,
+                    "sha": ref,
                 },
             )
 
             if hasattr(result, "content") and result.content:
-                # Type guard to ensure we have text content
                 first_content = result.content[0]
                 if hasattr(first_content, "text"):
                     data = json.loads(first_content.text)
+                    return cast(Dict[str, Any], data)
+            return None
+
+        except Exception as e:
+            print(f"Error fetching commit info for {ref}: {e}")
+            return None
+
+    async def get_commit_files(self, commit_sha: str) -> List[Dict[str, Any]]:
+        """Get files changed in a specific commit."""
+        try:
+            if self.mcp_session is None:
+                return []
+            result = await self.mcp_session.call_tool(
+                "get_commit",
+                {
+                    "owner": self.repo_owner,
+                    "repo": self.repo_name,
+                    "sha": commit_sha,
+                },
+            )
+
+            if hasattr(result, "content") and result.content:
+                first_content = result.content[0]
+                if hasattr(first_content, "text"):
+                    data = json.loads(first_content.text)
+                    files = data.get("files", [])
                     return (
-                        cast(List[Dict[str, Any]], data)
-                        if isinstance(data, list)
+                        cast(List[Dict[str, Any]], files)
+                        if isinstance(files, list)
                         else []
                     )
             return []
 
         except Exception as e:
-            print(f"Error fetching files for PR #{pr_number}: {e}")
+            print(f"Error fetching files for commit {commit_sha}: {e}")
             return []
 
-    async def analyze_pr_for_packaging_changes(
-        self, pr: Dict[str, Any]
-    ) -> Optional[PRSummary]:
-        pr_number = pr["number"]
-        print(f"Analyzing PR #{pr_number}: {pr['title']}")
+    async def analyze_commit_for_packaging_changes(
+        self, commit: Dict[str, Any]
+    ) -> Optional[CommitSummary]:
+        commit_sha = commit["sha"]
+        commit_title = commit["commit"]["message"].split("\n")[
+            0
+        ]  # First line of commit message
+        print(f"Analyzing commit {commit_sha[:8]}: {commit_title}")
 
-        files = await self.get_pr_files(pr_number)
+        files = await self.get_commit_files(commit_sha)
         packaging_changes = []
 
         for file_info in files:
@@ -288,28 +361,30 @@ class PackagingPRAnalyzer:
                 packaging_changes.append(change)
 
         if packaging_changes:
-            return PRSummary(
-                number=pr_number,
-                title=pr["title"],
-                author=pr["user"]["login"],
-                url=pr["html_url"],
+            return CommitSummary(
+                sha=commit_sha,
+                title=commit_title,
+                author=commit["commit"]["author"]["name"],
+                url=commit["html_url"],
+                date=commit["commit"]["author"]["date"],
                 packaging_changes=packaging_changes,
             )
 
         return None
 
-    def generate_ai_summary(self, pr_summary: PRSummary) -> str:
-        print(f"Generating AI summary for PR #{pr_summary.number}...")
+    def generate_ai_summary(self, commit_summary: CommitSummary) -> str:
+        print(f"Generating AI summary for commit {commit_summary.sha[:8]}...")
 
         context = f"""
-PR #{pr_summary.number}: {pr_summary.title}
-Author: {pr_summary.author}
-URL: {pr_summary.url}
+Commit {commit_summary.sha}: {commit_summary.title}
+Author: {commit_summary.author}
+Date: {commit_summary.date}
+URL: {commit_summary.url}
 
 Packaging files changed:
 """
 
-        for change in pr_summary.packaging_changes:
+        for change in commit_summary.packaging_changes:
             context += f"\n- {change.file_path} ({change.change_type})"
             context += f" +{change.additions} -{change.deletions}"
 
@@ -317,7 +392,7 @@ Packaging files changed:
                 context += f"\n  Patch preview:\n{change.patch[:500]}..."
 
         prompt = f"""
-Analyze the following pull request that touches Python packaging files.
+Analyze the following commit that touches Python packaging files.
 Provide a concise summary of what packaging-related changes are being made.
 Focus on:
 - Dependencies being added, removed, or updated
@@ -329,7 +404,7 @@ Focus on:
 Context:
 {context}
 
-Please provide a clear, concise summary of the packaging implications of this PR.
+Please provide a clear, concise summary of the packaging implications of this commit.
 """
 
         try:
@@ -338,7 +413,7 @@ Please provide a clear, concise summary of the packaging implications of this PR
                 messages=[
                     {
                         "role": "system",
-                        "content": """You are an expert Python packaging and dependency management analyst specializing in analyzing GitHub pull requests for packaging-related changes. Your role is to provide clear, actionable insights about how changes to packaging files impact project dependencies, build processes, and deployment.
+                        "content": """You are an expert Python packaging and dependency management analyst specializing in analyzing GitHub commits for packaging-related changes. Your role is to provide clear, actionable insights about how changes to packaging files impact project dependencies, build processes, and deployment.
 
 Key areas of expertise:
 - Python packaging files: requirements.txt, pyproject.toml, setup.py, setup.cfg, poetry.lock, Pipfile
@@ -348,7 +423,7 @@ Key areas of expertise:
 - Security implications of dependency updates
 - Performance and compatibility impacts of package changes
 
-When analyzing pull requests, focus on:
+When analyzing commits, focus on:
 1. **Dependency Changes**: New packages added, removed, or updated with version implications
 2. **Version Constraints**: Changes to version pinning, ranges, or compatibility requirements
 3. **Build Configuration**: Modifications to build tools, scripts, or packaging metadata
@@ -357,7 +432,7 @@ When analyzing pull requests, focus on:
 6. **Performance Impact**: Dependencies that may affect runtime performance or bundle size
 7. **Breaking Changes**: Updates that may introduce compatibility issues or require code changes
 
-Provide concise, technical summaries that help developers understand the packaging implications and potential risks or benefits of the proposed changes.""",
+Provide concise, technical summaries that help developers understand the packaging implications and potential risks or benefits of the changes made in each commit.""",
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -444,39 +519,54 @@ Provide concise, technical summaries that help developers understand the packagi
 
         return cleaned_content
 
-    async def analyze_repository(self) -> List[PRSummary]:
+    async def analyze_repository(
+        self, from_tag: Optional[str] = None, to_tag: str = "main"
+    ) -> List[CommitSummary]:
         print(f"Starting analysis of {self.repo_owner}/{self.repo_name}")
 
-        # Get all open PRs
-        prs = await self.get_open_prs()
-        print(f"Found {len(prs)} open PRs")
+        # Determine the from_tag if not provided
+        if not from_tag:
+            from_tag = await self.get_latest_tag()
+            if not from_tag:
+                print(
+                    "Warning: No tags found in repository. Using 'HEAD~10' as fallback."
+                )
+                from_tag = "HEAD~10"
+            else:
+                print(f"Using latest tag as from_tag: {from_tag}")
 
-        # Analyze each PR for packaging changes
-        packaging_prs = []
-        for pr in prs:
-            pr_summary = await self.analyze_pr_for_packaging_changes(pr)
-            if pr_summary:
-                packaging_prs.append(pr_summary)
+        print(f"Comparing commits from {from_tag} to {to_tag}")
+
+        # Get commits between the two references
+        commits = await self.get_commits_between_refs(from_tag, to_tag)
+        print(f"Found {len(commits)} commits between {from_tag} and {to_tag}")
+
+        # Analyze each commit for packaging changes
+        packaging_commits = []
+        for commit in commits:
+            commit_summary = await self.analyze_commit_for_packaging_changes(commit)
+            if commit_summary:
+                packaging_commits.append(commit_summary)
 
         if self.patches_dir:
             print(
-                f"Found {len(packaging_prs)} PRs touching files from patches directory"
+                f"Found {len(packaging_commits)} commits touching files from patches directory"
             )
             if self.patch_file_paths:
                 print("Monitored files:")
                 for file_path in sorted(self.patch_file_paths):
                     print(f"  - {file_path}")
         else:
-            print(f"Found {len(packaging_prs)} PRs with packaging changes")
+            print(f"Found {len(packaging_commits)} commits with packaging changes")
 
-        for pr_summary in packaging_prs:
-            pr_summary.ai_summary = self.generate_ai_summary(pr_summary)
+        for commit_summary in packaging_commits:
+            commit_summary.ai_summary = self.generate_ai_summary(commit_summary)
 
-        return packaging_prs
+        return packaging_commits
 
-    def print_results(self, results: List[PRSummary]):
+    def print_results(self, results: List[CommitSummary]):
         print("\n" + "=" * 80)
-        print("PYTHON PACKAGING PR ANALYSIS RESULTS")
+        print("PYTHON PACKAGING VERSION ANALYSIS RESULTS")
         print("=" * 80)
 
         # Show information about file patterns being used
@@ -490,20 +580,21 @@ Provide concise, technical summaries that help developers understand the packagi
         print("-" * 40)
 
         if not results:
-            print("No open PRs with packaging changes found.")
+            print("No commits with packaging changes found.")
             return
 
-        for i, pr in enumerate(results, 1):
-            print(f"\n{i}. PR #{pr.number}: {pr.title}")
-            print(f"   Author: {pr.author}")
-            print(f"   URL: {pr.url}")
-            print(f"   Files changed ({len(pr.packaging_changes)}):")
+        for i, commit in enumerate(results, 1):
+            print(f"\n{i}. Commit {commit.sha[:8]}: {commit.title}")
+            print(f"   Author: {commit.author}")
+            print(f"   Date: {commit.date}")
+            print(f"   URL: {commit.url}")
+            print(f"   Files changed ({len(commit.packaging_changes)}):")
 
-            for change in pr.packaging_changes:
+            for change in commit.packaging_changes:
                 print(
                     f"     - {change.file_path} ({change.change_type}) +{change.additions}/-{change.deletions}"
                 )
 
             print("\n   AI Summary:")
-            print(f"   {pr.ai_summary}")
+            print(f"   {commit.ai_summary}")
             print("-" * 40)
