@@ -19,8 +19,7 @@ SpyPip is a tool that analyzes GitHub repositories to find open pull requests th
 <details>
     <summary>Click to expand and see the tool in action</summary>
 
-    ```bash
-    podman run --name spypip --env-file .env --rm -it localhost/spypip:latest pytorch/pytorch --from-tag v2.6.0 --to-tag v2.7.0
+    podman run --name spypip --env-file .env --rm -it quay.io/emilien/spypip:latest pytorch/pytorch --from-tag v2.6.0 --to-tag v2.7.0
     Starting analysis of pytorch/pytorch
     Comparing commits from v2.6.0 to v2.7.0
     Fetching commits between v2.6.0 and v2.7.0 for pytorch/pytorch...
@@ -93,7 +92,6 @@ SpyPip is a tool that analyzes GitHub repositories to find open pull requests th
     Version constraints aren't modified in the packaging files, so this change doesn't seem to affect how dependencies are resolved. The focus here is more on adding new build artifacts rather than changing how dependencies are managed.
     ----------------------------------------
     INFO[0094] shutting down server...
-    ```
 </details>
 
 ## Quickstart
