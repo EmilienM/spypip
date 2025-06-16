@@ -360,7 +360,6 @@ class PackagingVersionAnalyzer:
         commit_title = commit["commit"]["message"].split("\n")[
             0
         ]  # First line of commit message
-        print(f"Analyzing commit {commit_sha[:8]}: {commit_title}")
 
         files = await self.get_commit_files(commit_sha)
         packaging_changes = []
@@ -557,10 +556,14 @@ Provide concise, technical summaries that help developers understand the packagi
 
         # Get commits between the two references
         commits = await self.get_commits_between_refs(from_tag, to_tag)
-        print(f"Found {len(commits)} commits between {from_tag} and {to_tag}")
 
         # Analyze each commit for packaging changes
         packaging_commits = []
+
+        # Print simple message with commit count
+        if commits:
+            print(f"Anazlying {len(commits)} commits")
+
         for commit in commits:
             commit_summary = await self.analyze_commit_for_packaging_changes(commit)
             if commit_summary:
@@ -583,9 +586,6 @@ Provide concise, technical summaries that help developers understand the packagi
         return packaging_commits
 
     def print_results(self, results: List[CommitSummary]):
-        print("\n" + "=" * 80)
-        print("PYTHON PACKAGING VERSION ANALYSIS RESULTS")
-        print("=" * 80)
 
         # Show information about file patterns being used
         if self.patches_dir:
