@@ -243,38 +243,56 @@ class PackagingVersionAnalyzer:
             if self.mcp_session is None:
                 return []
 
-            # Get commits from the to_ref branch, then filter by date/commits after from_ref
-            result = await self.mcp_session.call_tool(
-                "list_commits",
-                {
-                    "owner": self.repo_owner,
-                    "repo": self.repo_name,
-                    "sha": to_ref,
-                    "perPage": 100,
-                },
-            )
+            # Get the commit SHA for from_ref to know where to stop
+            from_commit = await self.get_commit_info(from_ref)
+            from_sha = from_commit["sha"] if from_commit else None
 
-            if hasattr(result, "content") and result.content:
+            all_commits = []
+            page = 1
+            per_page = 100
+
+            while True:
+                # Get commits from the to_ref branch with pagination
+                result = await self.mcp_session.call_tool(
+                    "list_commits",
+                    {
+                        "owner": self.repo_owner,
+                        "repo": self.repo_name,
+                        "sha": to_ref,
+                        "perPage": per_page,
+                        "page": page,
+                    },
+                )
+
+                if not (hasattr(result, "content") and result.content):
+                    break
+
                 first_content = result.content[0]
-                if hasattr(first_content, "text"):
-                    data = json.loads(first_content.text)
-                    if isinstance(data, list):
-                        all_commits = cast(List[Dict[str, Any]], data)
+                if not hasattr(first_content, "text"):
+                    break
 
-                        # Get the commit SHA for from_ref to know where to stop
-                        from_commit = await self.get_commit_info(from_ref)
-                        if from_commit:
-                            from_sha = from_commit["sha"]
-                            # Filter commits to only include those after from_ref
-                            filtered_commits = []
-                            for commit in all_commits:
-                                if commit["sha"] == from_sha:
-                                    break
-                                filtered_commits.append(commit)
-                            return filtered_commits
-                        else:
-                            return all_commits
-            return []
+                data = json.loads(first_content.text)
+                if not isinstance(data, list) or len(data) == 0:
+                    break
+
+                page_commits = cast(List[Dict[str, Any]], data)
+
+                # Filter commits to only include those after from_ref
+                found_from_ref = False
+                for commit in page_commits:
+                    if from_sha and commit["sha"] == from_sha:
+                        found_from_ref = True
+                        break
+                    all_commits.append(commit)
+
+                # If we found the from_ref commit or got less than per_page commits, we're done
+                if found_from_ref or len(page_commits) < per_page:
+                    break
+
+                page += 1
+
+            print(f"Found {len(all_commits)} commits between {from_ref} and {to_ref}")
+            return all_commits
 
         except Exception as e:
             print(f"Error fetching commits: {e}")
