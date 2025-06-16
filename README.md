@@ -13,6 +13,8 @@ SpyPip is a tool that analyzes GitHub repositories to find open pull requests th
 - 🔗 **GitHub Integration**: Seamlessly integrates with GitHub API via MCP (Model Context Protocol)
 - 🧠 **Reasoning Model Support**: Compatible with reasoning models that include thinking steps in responses
 
+<img src="screenshot.png" alt="SpyPip in action">
+
 ## Quickstart
 
 1. Create .env file:
