@@ -13,7 +13,87 @@ SpyPip is a tool that analyzes GitHub repositories to find open pull requests th
 - 🔗 **GitHub Integration**: Seamlessly integrates with GitHub API via MCP (Model Context Protocol)
 - 🧠 **Reasoning Model Support**: Compatible with reasoning models that include thinking steps in responses
 
-<img src="screenshot.png" alt="SpyPip in action">
+
+## Demo
+
+<details>
+    <summary>Click to expand and see the tool in action</summary>
+    ```bash
+    podman run --name spypip --env-file .env --rm -it localhost/spypip:latest pytorch/pytorch --from-tag v2.6.0 --to-tag v2.7.0
+    Starting analysis of pytorch/pytorch
+    Comparing commits from v2.6.0 to v2.7.0
+    Fetching commits between v2.6.0 and v2.7.0 for pytorch/pytorch...
+    GitHub MCP Server running on stdio
+    Found 100 commits between v2.6.0 and v2.7.0
+    Analyzing commit 13417947: Gracefully handle optree less than minimum version, part 2 (#151323)
+    Analyzing commit 61f9b50e: [ROCm] Fix TORCH_CHECK for hdim 512 support added in AOTriton 0.9b (#148967)
+    [snip]
+    Analyzing commit 971606be: Add a stable TORCH_LIBRARY to C shim (#148124)
+    Found 3 commits with packaging changes
+    Generating AI summary for commit b766c020...
+    Generating AI summary for commit 64ca70f8...
+    Generating AI summary for commit 971606be...
+    
+    ================================================================================
+    PYTHON PACKAGING VERSION ANALYSIS RESULTS
+    ================================================================================
+    Using default packaging file patterns (19 patterns)
+    ----------------------------------------
+    
+    1. Commit b766c020: [Cherry-pick] Make PyTorch buildable with cmake-4 (#150460)
+       Author: Nikita Shulga
+       Date: 2025-04-02T02:37:52Z
+       URL: https://github.com/pytorch/pytorch/commit/b766c0200a9d34c76a7c74cec5b78311f5cb8ae7
+       Files changed (1):
+         - requirements.txt (modified) +1/-1
+    
+       AI Summary:
+       Looking at the packaging files changed, only requirements.txt was modified. The patch preview shows that the line for cmake was changed from "cmake==3.31.6  # Temp pin until we support 4.0.0?" to just "cmake". So, the version constraint is being removed.
+    
+    First, I should note that this is a dependency change. The cmake package is being updated, but not to a specific version. Instead, the version is being unpinned. Previously, it was pinned to 3.31.6, which was a temporary measure until support for cmake 4.0.0 was ready. Now, by removing the version constraint, the project will use the latest available version of cmake, which is likely 4.0.0 or higher.
+    
+    Next, I should consider the implications of this change. Unpinning a dependency can have both positive and negative effects. On the positive side, it allows the project to take advantage of newer features and bug fixes in cmake 4.x, which might be necessary for certain build configurations or improvements in PyTorch. This could make the build process more compatible with newer systems or environments that have cmake 4 installed.
+    
+    However, there are potential risks. If the project wasn't fully tested with cmake 4, there might be breaking changes or compatibility issues. This could lead to build failures or unexpected behavior in the future. It's also possible that some downstream dependencies or tools used in the build process might not be compatible with cmake 4 yet, which could introduce new bugs or vulnerabilities.
+    
+    Another consideration is the build configuration. Since the commit is about making PyTorch buildable with cmake-4, it's likely that other parts of the build process were updated to handle the new cmake version. This might include changes in CMakeLists.txt or other build scripts to ensure compatibility. However, since the packaging files only show a change in requirements.txt
+    ----------------------------------------
+    
+    2. Commit 64ca70f8: Pin cmake==3.31.6 (#150193)
+       Author: pytorchbot
+       Date: 2025-03-28T16:09:29Z
+       URL: https://github.com/pytorch/pytorch/commit/64ca70f83c62f1e2430634da42fbe2415c3766ce
+       Files changed (1):
+         - requirements.txt (modified) +1/-1
+    
+       AI Summary:
+       The commit pins the cmake
+    ----------------------------------------
+    
+    3. Commit 971606be: Add a stable TORCH_LIBRARY to C shim (#148124)
+       Author: Jane Xu
+       Date: 2025-03-11T14:44:21Z
+       URL: https://github.com/pytorch/pytorch/commit/971606befac4f5638ec039c53ea2f78da44d0030
+       Files changed (2):
+         - setup.py (modified) +1/-0
+         - test/cpp_extensions/libtorch_agnostic_extension/setup.py (added) +67/-0
+    
+       AI Summary:
+       Looking at the packaging files changed, there are two files involved: setup.py and test/cpp_extensions/libtorch_agnostic_extension/setup.py. 
+    
+    First, setup.py is modified. The patch shows that a new include directory "include/torch/csrc/stable/*.h" is added. This means that the build process will now include headers from this new directory. Including new headers could indicate that there are new C++ extensions or APIs being exposed, which might require corresponding changes in the build setup.
+    
+    Next, a new file test/cpp_extensions/libtorch_agnostic_extension/setup.py is added. This file contains a setup script that uses setuptools and the torch.utils.cpp_extension module. It defines a custom clean command that removes build artifacts. The presence of this setup.py suggests that a new C++ extension module is being created or tested. This module is likely part of the PyTorch C++ API, allowing users to integrate PyTorch with C++ code more seamlessly.
+    
+    In terms of dependencies, I don't see any changes in files like requirements.txt or pyproject.toml, so it doesn't look like any Python packages are being added or removed. However, the addition of a new C++ extension might depend on specific compiler versions or build tools, which could affect the build configuration. The use of setuptools and CppExtension indicates that the build process is leveraging existing PyTorch build infrastructure, so it's probably compatible with the current setup.
+    
+    For containerization, there's no mention of Dockerfiles or similar files being changed, so I don't think this commit affects container builds directly. However, if the new C++ extension is included in the final package, it might require additional libraries or dependencies at runtime, which could impact the container's size or required base images.
+    
+    Version constraints aren't modified in the packaging files, so this change doesn't seem to affect how dependencies are resolved. The focus here is more on adding new build artifacts rather than changing how dependencies are managed.
+    ----------------------------------------
+    INFO[0094] shutting down server...
+    ```
+</details>
 
 ## Quickstart
 
