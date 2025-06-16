@@ -18,6 +18,7 @@ SpyPip is a tool that analyzes GitHub repositories to find open pull requests th
 
 <details>
     <summary>Click to expand and see the tool in action</summary>
+
     ```bash
     podman run --name spypip --env-file .env --rm -it localhost/spypip:latest pytorch/pytorch --from-tag v2.6.0 --to-tag v2.7.0
     Starting analysis of pytorch/pytorch
