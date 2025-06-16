@@ -127,6 +127,24 @@ podman run --name spypip --env-file .env --rm -it \
   ROCm/aotriton --patches-dir /patches
 ```
 
+Validate patches before analysis:
+
+```bash
+podman run --name spypip --env-file .env --rm -it \
+  -v ./my-patches:/patches:ro,Z \
+  quay.io/emilien/spypip:latest \
+  ROCm/aotriton --patches-dir /patches --check-patch-apply-only
+```
+
+Get JSON output for failed patches (useful for CI/CD integration):
+
+```bash
+podman run --name spypip --env-file .env --rm -it \
+  -v ./my-patches:/patches:ro,Z \
+  quay.io/emilien/spypip:latest \
+  ROCm/aotriton --patches-dir /patches --check-patch-apply-only --json-output
+```
+
 ## Install and run locally
 
 1. Clone the repository:
@@ -194,6 +212,48 @@ Or combine with version comparison:
 ```bash
 python -m spypip owner/repository-name --from-tag v1.0.0 --to-tag v1.1.0 --patches-dir /path/to/patches
 ```
+
+### Patch Validation Mode
+
+Before running the full analysis, you can validate that your patch files can be applied to the target repository using the `--check-patch-apply-only` option:
+
+```bash
+python -m spypip owner/repository-name --patches-dir /path/to/patches --check-patch-apply-only
+```
+
+Or test against a specific branch/tag:
+
+```bash
+python -m spypip owner/repository-name --patches-dir /path/to/patches --check-patch-apply-only --to-tag v2.0.0
+```
+
+For integration with CI/CD pipelines or automation tools, you can output failed patches in JSON format suitable for creating tickets or reports:
+
+```bash
+python -m spypip owner/repository-name --patches-dir /path/to/patches --check-patch-apply-only --json-output
+```
+
+This mode will:
+1. Clone the repository to a temporary directory (including submodules)
+2. Checkout the specified reference (defaults to `main`)
+3. Test each `.patch` and `.diff` file to see if it can be applied
+4. Provide detailed diagnostic information for any patches that fail
+5. Exit with status code 0 if all patches apply successfully, or 1 if any fail
+
+#### JSON Output Format
+
+When using `--json-output` with `--check-patch-apply-only`, failed patches are output in JSON format:
+
+```json
+{
+  "title": "Failed to apply patches owner/repository for 'main'",
+  "content": "Some patches for owner/repository failed to apply on main:\n\nApplying patch: example.patch\n✗ Patch example.patch FAILED to apply\n  Error: patch does not apply\n\nYou'll need to fix these patches manually."
+}
+```
+
+This JSON output is designed to be consumed by automation tools for creating tickets, alerts, or reports when patch validation fails.
+
+**Note:** The `--check-patch-apply-only` option requires `--patches-dir` to be specified and only works with `.patch` and `.diff` files (not plain text file lists). The `--json-output` flag can only be used with `--check-patch-apply-only`.
 
 The patches directory can contain:
 

@@ -24,6 +24,8 @@ Examples:
   python -m spypip vllm-project/vllm --from-tag v1.0.0 --to-tag v1.1.0
   python -m spypip vllm-project/vllm --from-tag v1.0.0
   python -m spypip vllm-project/vllm --patches-dir ./patches
+  python -m spypip vllm-project/vllm --patches-dir ./patches --check-patch-apply-only
+  python -m spypip vllm-project/vllm --patches-dir ./patches --check-patch-apply-only --json-output
         """,
     )
 
@@ -51,7 +53,29 @@ Examples:
         help="Path to directory containing patch files. When specified, SpyPip will read these files and override the default list of packaging files to look for commits touching these files.",
     )
 
-    return parser.parse_args()
+    parser.add_argument(
+        "--check-patch-apply-only",
+        action="store_true",
+        help="Only check if patches can be applied. Requires --patches-dir. Checkouts the repository in a temporary location and tests patch application without running the full analysis.",
+    )
+
+    parser.add_argument(
+        "--json-output",
+        action="store_true",
+        help="Output patch failures in JSON format suitable for creating Jira tickets. Only used with --check-patch-apply-only.",
+    )
+
+    args = parser.parse_args()
+
+    # Validate that --check-patch-apply-only requires --patches-dir
+    if args.check_patch_apply_only and not args.patches_dir:
+        parser.error("--check-patch-apply-only requires --patches-dir to be specified")
+
+    # Validate that --json-output requires --check-patch-apply-only
+    if args.json_output and not args.check_patch_apply_only:
+        parser.error("--json-output requires --check-patch-apply-only to be specified")
+
+    return args
 
 
 async def async_main():
@@ -76,14 +100,34 @@ async def async_main():
         "This is required for the GitHub MCP server to authenticate with GitHub API",
     )
 
-    # Run the analysis
-    async with PackagingVersionAnalyzer(
-        repo_owner, repo_name, openai_api_key, patches_dir=args.patches_dir
-    ) as analyzer:
-        results = await analyzer.analyze_repository(
-            from_tag=args.from_tag, to_tag=args.to_tag
-        )
-        analyzer.print_results(results)
+    # Run the analysis or patch check
+    success = True
+    try:
+        async with PackagingVersionAnalyzer(
+            repo_owner,
+            repo_name,
+            openai_api_key,
+            patches_dir=args.patches_dir,
+            json_output=args.json_output,
+        ) as analyzer:
+            if args.check_patch_apply_only:
+                # Only check patch application
+                success = await analyzer.check_patch_application(
+                    args.to_tag, json_output=args.json_output
+                )
+            else:
+                # Run full analysis
+                results = await analyzer.analyze_repository(
+                    from_tag=args.from_tag, to_tag=args.to_tag
+                )
+                analyzer.print_results(results)
+    except Exception as e:
+        print(f"Error during analysis: {e}")
+        success = False
+
+    # Exit with error code after the context manager is properly closed
+    if args.check_patch_apply_only and not success:
+        sys.exit(1)
 
 
 def main():

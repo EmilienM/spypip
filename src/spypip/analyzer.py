@@ -9,6 +9,8 @@ and uses an LLM to summarize packaging-related changes.
 import json
 import os
 import re
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set, cast
@@ -36,6 +38,12 @@ class CommitSummary:
     date: str
     packaging_changes: List[PackagingChange]
     ai_summary: Optional[str] = None
+
+
+@dataclass
+class PatchFailure:
+    patch_name: str
+    error_output: str
 
 
 class PackagingVersionAnalyzer:
@@ -67,10 +75,12 @@ class PackagingVersionAnalyzer:
         repo_name: str,
         openai_api_key: str,
         patches_dir: Optional[str] = None,
+        json_output: bool = False,
     ):
         self.repo_owner = repo_owner
         self.repo_name = repo_name
         self.patches_dir = patches_dir
+        self.json_output = json_output
         base_url = os.getenv(
             "OPENAI_ENDPOINT_URL", "https://models.github.ai/inference"
         )
@@ -87,23 +97,73 @@ class PackagingVersionAnalyzer:
 
     async def __aenter__(self):
         github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+
+        # Create server parameters with different logging settings for JSON mode
+        env_vars = {**os.environ, "GITHUB_PERSONAL_ACCESS_TOKEN": github_token or ""}
+
+        # Try to suppress MCP server logging when in JSON mode
+        if self.json_output:
+            # Set environment variables that might suppress logging
+            env_vars.update(
+                {
+                    "MCP_LOG_LEVEL": "ERROR",  # Try to suppress info logs
+                    "RUST_LOG": "error",  # Suppress Rust logging if applicable
+                }
+            )
+
+        # Always suppress MCP server startup messages by wrapping the command
+        # Create a shell command that redirects stderr to /dev/null
+        if os.name == "posix":  # Unix-like systems
+            command = "sh"
+            args = ["-c", "github-mcp-server stdio --toolsets all 2>/dev/null"]
+        else:  # Windows
+            command = "cmd"
+            args = ["/c", "github-mcp-server stdio --toolsets all 2>nul"]
+
         server_params = StdioServerParameters(
-            command="github-mcp-server",
-            args=["stdio", "--toolsets", "all"],
-            env={**os.environ, "GITHUB_PERSONAL_ACCESS_TOKEN": github_token or ""},
+            command=command,
+            args=args,
+            env=env_vars,
         )
 
         self.mcp_client = stdio_client(server_params)
+
         read_stream, write_stream = await self.mcp_client.__aenter__()
         self.mcp_session = ClientSession(read_stream, write_stream)
         await self.mcp_session.__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Close session first, then client, with better exception handling
+        session_exception = None
+        client_exception = None
+
+        # Close MCP session
         if self.mcp_session:
-            await self.mcp_session.__aexit__(exc_type, exc_val, exc_tb)
+            try:
+                await self.mcp_session.__aexit__(exc_type, exc_val, exc_tb)
+            except Exception as e:
+                session_exception = e
+                if not self.json_output:
+                    print(f"Warning: Error closing MCP session: {e}")
+
+        # Close MCP client
         if self.mcp_client:
-            await self.mcp_client.__aexit__(exc_type, exc_val, exc_tb)
+            try:
+                await self.mcp_client.__aexit__(exc_type, exc_val, exc_tb)
+            except Exception as e:
+                client_exception = e
+                if not self.json_output:
+                    print(f"Warning: Error closing MCP client: {e}")
+
+        # If we had an original exception, don't suppress it
+        # Only suppress cleanup exceptions if there was no original exception
+        if exc_type is None and (session_exception or client_exception):
+            # If there was no original exception but cleanup failed, we might want to raise
+            # However, for now we'll just log and continue to avoid masking the original issue
+            pass
+
+        return False  # Don't suppress any original exceptions
 
     def _load_file_patterns(self) -> List[str]:
         """
@@ -126,16 +186,19 @@ class PackagingVersionAnalyzer:
             )
             return self.PACKAGING_PATTERNS
 
-        print(f"Loading file patterns from patches directory: {self.patches_dir}")
+        if not self.json_output:
+            print(f"Loading file patterns from patches directory: {self.patches_dir}")
         file_paths = self._extract_file_paths_from_patches(patches_path)
 
         if not file_paths:
-            print(
-                "Warning: No file paths found in patch files. Using default patterns."
-            )
+            if not self.json_output:
+                print(
+                    "Warning: No file paths found in patch files. Using default patterns."
+                )
             return self.PACKAGING_PATTERNS
 
-        print(f"Found {len(file_paths)} file paths in patches")
+        if not self.json_output:
+            print(f"Found {len(file_paths)} file paths in patches")
         # Store the exact file paths - we'll match them directly
         self.patch_file_paths = file_paths
         return []  # Return empty list since we'll use exact path matching
@@ -536,6 +599,354 @@ Provide concise, technical summaries that help developers understand the packagi
 
         return cleaned_content
 
+    def analyze_patch_compatibility(
+        self, patch_file: Path, repo_dir: Path
+    ) -> Dict[str, Any]:
+        """
+        Analyze why a patch might not be compatible with the current codebase.
+        Returns detailed information about potential issues and suggestions.
+        """
+        analysis: Dict[str, Any] = {
+            "patch_file": patch_file.name,
+            "target_files": [],
+            "missing_files": [],
+            "potential_issues": [],
+            "suggestions": [],
+        }
+
+        try:
+            with open(patch_file, "r", encoding="utf-8", errors="ignore") as f:
+                patch_content = f.read()
+
+            # Extract target files and their modifications
+            lines = patch_content.split("\n")
+            current_file = None
+
+            for line in lines:
+                if line.startswith("--- a/"):
+                    current_file = line[6:]  # Remove '--- a/'
+                    analysis["target_files"].append(current_file)
+
+                    target_path = repo_dir / current_file
+                    if not target_path.exists():
+                        analysis["missing_files"].append(current_file)
+                        analysis["potential_issues"].append(
+                            f"File {current_file} does not exist in repository"
+                        )
+
+                elif line.startswith("diff --git"):
+                    # Alternative way to extract file names
+                    match = re.search(r"diff --git a/(.+) b/", line)
+                    if match:
+                        file_path = match.group(1)
+                        if file_path not in analysis["target_files"]:
+                            analysis["target_files"].append(file_path)
+                            target_path = repo_dir / file_path
+                            if not target_path.exists():
+                                analysis["missing_files"].append(file_path)
+
+            # Generate suggestions based on analysis
+            if analysis["missing_files"]:
+                analysis["suggestions"].append(
+                    "Some target files are missing. The patch may be for a different version or branch."
+                )
+                analysis["suggestions"].append(
+                    "Consider updating the patch file paths or checking if files have been moved/renamed."
+                )
+
+            if not analysis["target_files"]:
+                analysis["potential_issues"].append(
+                    "Could not identify target files in patch"
+                )
+                analysis["suggestions"].append(
+                    "Patch format may be invalid or unsupported"
+                )
+
+        except Exception as e:
+            analysis["potential_issues"].append(f"Error reading patch file: {e}")
+
+        return analysis
+
+    def _generate_jira_content(
+        self, failed_patches: List[PatchFailure], ref: str
+    ) -> str:
+        """
+        Generate Jira ticket content from failed patches.
+        """
+        content_lines = [
+            f"Some patches for {self.repo_owner}/{self.repo_name} failed to apply on {ref}:",
+            "",
+        ]
+
+        for patch_failure in failed_patches:
+            content_lines.append(f"Applying patch: {patch_failure.patch_name}")
+            content_lines.append(f"✗ Patch {patch_failure.patch_name} FAILED to apply")
+            content_lines.append(patch_failure.error_output)
+            content_lines.append("")
+
+        content_lines.append("You'll need to fix these patches manually.")
+
+        return "\n".join(content_lines)
+
+    async def check_patch_application(
+        self, ref: str = "main", json_output: bool = False
+    ) -> bool:
+        """
+        Check if patches can be applied to the repository at the specified ref.
+
+        This method:
+        1. Clones the repository to a temporary directory (including submodules)
+        2. Checks out the specified ref
+        3. Attempts to apply each patch file
+        4. Reports success/failure for each patch
+
+        Args:
+            ref: The git reference to check patches against
+            json_output: If True, output failed patches in JSON format for Jira tickets
+
+        Returns True if all patches apply successfully, False otherwise.
+        """
+        if not self.patches_dir:
+            if not json_output:
+                print("Error: No patches directory specified")
+            return False
+
+        patches_path = Path(self.patches_dir)
+        if not patches_path.exists() or not patches_path.is_dir():
+            if not json_output:
+                print(
+                    f"Error: Patches directory '{self.patches_dir}' does not exist or is not a directory"
+                )
+            return False
+
+        if not json_output:
+            print(
+                f"Checking patch application for {self.repo_owner}/{self.repo_name} at ref '{ref}'"
+            )
+
+        # Get patch files
+        patch_files = []
+        for patch_file in patches_path.iterdir():
+            if patch_file.is_file() and patch_file.suffix.lower() in {
+                ".patch",
+                ".diff",
+            }:
+                patch_files.append(patch_file)
+
+        if not patch_files:
+            if not json_output:
+                print(
+                    "Warning: No patch files (.patch or .diff) found in patches directory"
+                )
+                print(
+                    "Only .patch and .diff files are supported for patch application testing"
+                )
+            return True  # No patches to apply is considered success
+
+        if not json_output:
+            print(f"Found {len(patch_files)} patch files to test")
+
+        # Create temporary directory for repository clone
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_dir = Path(temp_dir) / "repo"
+
+            try:
+                # Clone the repository
+                if not json_output:
+                    print("Cloning repository to temporary directory...")
+                clone_url = f"https://github.com/{self.repo_owner}/{self.repo_name}.git"
+
+                clone_result = subprocess.run(
+                    [
+                        "git",
+                        "clone",
+                        "--depth",
+                        "1",
+                        "--branch",
+                        ref,
+                        "--recurse-submodules",
+                        clone_url,
+                        str(repo_dir),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+
+                if clone_result.returncode != 0:
+                    print(f"Error cloning repository: {clone_result.stderr}")
+                    return False
+
+                if not json_output:
+                    print("Successfully cloned repository")
+
+                # Test each patch
+                all_patches_successful = True
+                failed_patches = []
+
+                for patch_file in patch_files:
+                    if not json_output:
+                        print(f"\nTesting patch: {patch_file.name}")
+
+                    # Try to apply the patch with --dry-run first
+                    patch_result = subprocess.run(
+                        ["git", "apply", "--check", "--verbose", str(patch_file)],
+                        cwd=repo_dir,
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    if patch_result.returncode == 0:
+                        if not json_output:
+                            print(
+                                f"✓ Patch {patch_file.name} can be applied successfully"
+                            )
+                    else:
+                        # Collect error information for JSON output
+                        error_output = []
+                        if patch_result.stderr:
+                            error_output.append(
+                                f"  Error: {patch_result.stderr.strip()}"
+                            )
+                        if patch_result.stdout:
+                            error_output.append(
+                                f"  Output: {patch_result.stdout.strip()}"
+                            )
+
+                        if not json_output:
+                            print(f"✗ Patch {patch_file.name} FAILED to apply")
+                            for line in error_output:
+                                print(line)
+                            print("  Attempting to get more diagnostic information...")
+
+                        # Try with different patch options for better diagnostics
+                        diagnostic_result = subprocess.run(
+                            [
+                                "git",
+                                "apply",
+                                "--check",
+                                "--verbose",
+                                "--ignore-whitespace",
+                                str(patch_file),
+                            ],
+                            cwd=repo_dir,
+                            capture_output=True,
+                            text=True,
+                        )
+
+                        if diagnostic_result.returncode == 0:
+                            diagnostic_info = (
+                                "  Note: Patch would succeed with --ignore-whitespace"
+                            )
+                            error_output.append(diagnostic_info)
+                            if not json_output:
+                                print(diagnostic_info)
+                        else:
+                            # Try to show what files the patch is trying to modify
+                            try:
+                                with open(patch_file, "r") as f:
+                                    patch_content = f.read()
+
+                                # Extract file paths from patch
+                                file_paths = set()
+                                for line in patch_content.split("\n"):
+                                    if line.startswith("--- a/") or line.startswith(
+                                        "+++ b/"
+                                    ):
+                                        path = (
+                                            line.split("/", 1)[1]
+                                            if "/" in line
+                                            else line
+                                        )
+                                        file_paths.add(path)
+
+                                if file_paths:
+                                    file_info = f"  Patch targets these files: {', '.join(sorted(file_paths))}"
+                                    error_output.append(file_info)
+                                    if not json_output:
+                                        print(file_info)
+
+                                    # Check if these files exist
+                                    for file_path in file_paths:
+                                        target_file = repo_dir / file_path
+                                        if target_file.exists():
+                                            status_info = f"    ✓ {file_path} exists"
+                                            error_output.append(status_info)
+                                            if not json_output:
+                                                print(status_info)
+                                        else:
+                                            status_info = (
+                                                f"    ✗ {file_path} does not exist"
+                                            )
+                                            error_output.append(status_info)
+                                            if not json_output:
+                                                print(status_info)
+
+                            except Exception as e:
+                                error_info = f"  Could not analyze patch content: {e}"
+                                error_output.append(error_info)
+                                if not json_output:
+                                    print(error_info)
+
+                        # Perform detailed analysis of why the patch failed
+                        analysis = self.analyze_patch_compatibility(
+                            patch_file, repo_dir
+                        )
+
+                        if analysis["potential_issues"]:
+                            if not json_output:
+                                print("  Potential issues:")
+                            for issue in analysis["potential_issues"]:
+                                issue_info = f"    - {issue}"
+                                error_output.append(issue_info)
+                                if not json_output:
+                                    print(issue_info)
+
+                        if analysis["suggestions"]:
+                            if not json_output:
+                                print("  Suggestions:")
+                            for suggestion in analysis["suggestions"]:
+                                suggestion_info = f"    - {suggestion}"
+                                error_output.append(suggestion_info)
+                                if not json_output:
+                                    print(suggestion_info)
+
+                        # Store the failed patch information
+                        failed_patches.append(
+                            PatchFailure(
+                                patch_name=patch_file.name,
+                                error_output="\n".join(error_output),
+                            )
+                        )
+
+                        all_patches_successful = False
+
+                # Handle output based on format
+                if json_output:
+                    if failed_patches:
+                        # Generate JSON output for Jira tickets
+                        json_output_data = {
+                            "title": f"Failed to apply patches {self.repo_owner}/{self.repo_name} for '{ref}'",
+                            "content": self._generate_jira_content(failed_patches, ref),
+                        }
+                        print(json.dumps(json_output_data, indent=2))
+                    # For JSON output, don't print success messages to keep output clean
+                else:
+                    print(f"\n{'=' * 50}")
+                    if all_patches_successful:
+                        print("✓ ALL PATCHES CAN BE APPLIED SUCCESSFULLY")
+                    else:
+                        print("✗ SOME PATCHES FAILED TO APPLY")
+
+                return all_patches_successful
+
+            except subprocess.TimeoutExpired:
+                print("Error: Repository clone timed out")
+                return False
+            except Exception as e:
+                print(f"Error during patch application check: {e}")
+                return False
+
     async def analyze_repository(
         self, from_tag: Optional[str] = None, to_tag: str = "main"
     ) -> List[CommitSummary]:
@@ -586,7 +997,6 @@ Provide concise, technical summaries that help developers understand the packagi
         return packaging_commits
 
     def print_results(self, results: List[CommitSummary]):
-
         # Show information about file patterns being used
         if self.patches_dir:
             print(f"Using custom file paths from patches directory: {self.patches_dir}")
