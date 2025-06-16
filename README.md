@@ -1,13 +1,14 @@
-# SpyPip - Python Packaging PR Analyzer
+# SpyPip - Python Packaging Version Analyzer
 
 <img src="logo.png" alt="SpyPip Logo" width="200">
 
-SpyPip is a tool that analyzes GitHub repositories to find open pull requests that touch Python packaging files and provides AI-powered summaries of packaging-related changes.
+SpyPip is a tool that analyzes GitHub repositories to compare commits between two versions/tags that touch Python packaging files and provides AI-powered summaries of packaging-related changes.
 
 ## Features
 
-- 🔍 **Smart Detection**: Automatically identifies PRs that modify packaging files (requirements.txt, pyproject.toml, setup.py, Dockerfiles, etc.)
-- 🎯 **Custom File Monitoring**: Override default patterns by providing patch files with custom file paths to monitor
+- 🔍 **Smart Detection**: Automatically identifies commits that modify packaging files (requirements.txt, pyproject.toml, setup.py, Dockerfiles, etc.)
+- 🏷️ **Version Comparison**: Compare commits between two tags/versions or between latest tag and main branch
+- � **Custom File Monitoring**: Override default patterns by providing patch files with custom file paths to monitor
 - 🤖 **AI Summaries**: Leverages LLM to generate concise summaries of packaging changes
 - 📊 **Comprehensive Analysis**: Analyzes dependencies, build configurations, containerization changes, and version constraints
 - 🔗 **GitHub Integration**: Seamlessly integrates with GitHub API via MCP (Model Context Protocol)
@@ -111,7 +112,13 @@ vi .env
 podman run --name spypip --env-file .env --rm -it quay.io/emilien/spypip:latest ROCm/aotriton
 ```
 
-or
+Compare specific tags:
+
+```bash
+podman run --name spypip --env-file .env --rm -it quay.io/emilien/spypip:latest ROCm/aotriton --from-tag v1.0.0 --to-tag v1.1.0
+```
+
+With custom patches:
 
 ```bash
 podman run --name spypip --env-file .env --rm -it \
@@ -159,9 +166,19 @@ Run SpyPip by specifying the repository you want to analyze:
 python -m spypip owner/repository-name
 ```
 
-For example:
+For example (compares latest tag to main):
 ```bash
 python -m spypip vllm-project/vllm
+```
+
+Compare specific tags:
+```bash
+python -m spypip vllm-project/vllm --from-tag v1.0.0 --to-tag v1.1.0
+```
+
+Compare from specific tag to main:
+```bash
+python -m spypip vllm-project/vllm --from-tag v1.0.0
 ```
 
 ### Custom File Monitoring with Patch Files
@@ -170,6 +187,12 @@ You can override the default list of packaging files by providing a directory co
 
 ```bash
 python -m spypip owner/repository-name --patches-dir /path/to/patches
+```
+
+Or combine with version comparison:
+
+```bash
+python -m spypip owner/repository-name --from-tag v1.0.0 --to-tag v1.1.0 --patches-dir /path/to/patches
 ```
 
 The patches directory can contain:
@@ -201,7 +224,7 @@ build-constraints.txt
 When using `--patches-dir`, SpyPip will:
 1. Read all `.patch`, `.diff`, and `.txt` files in the specified directory
 2. Extract exact file paths from git patches or plain text lists
-3. Monitor PRs that touch exactly these file paths (no pattern matching)
+3. Monitor commits that touch exactly these file paths (no pattern matching)
 4. Use exact path matching instead of the default packaging file patterns
 5. Display a custom message showing which files are being monitored
 
@@ -209,11 +232,11 @@ When using `--patches-dir`, SpyPip will:
 
 SpyPip will:
 
-1. Fetch all open pull requests from the specified repository
-2. Identify PRs that modify packaging files
-3. Generate AI-powered summaries for each relevant PR
+1. Compare commits between the specified tags/versions (or latest tag to main by default)
+2. Identify commits that modify packaging files
+3. Generate AI-powered summaries for each relevant commit
 4. Display a comprehensive report showing:
-   - PR details (number, title, author, URL)
+   - Commit details (SHA, title, author, date, URL)
    - Changed packaging files with statistics
    - AI analysis of packaging implications
 

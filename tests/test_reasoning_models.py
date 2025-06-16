@@ -1,7 +1,7 @@
 """Tests for reasoning model response handling."""
 
 import pytest
-from spypip.analyzer import PackagingPRAnalyzer
+from spypip.analyzer import PackagingVersionAnalyzer
 
 
 class TestReasoningModelSupport:
@@ -10,7 +10,7 @@ class TestReasoningModelSupport:
     def setup_method(self):
         """Set up test analyzer instance."""
         # Create analyzer with dummy values since we're only testing the response parsing
-        self.analyzer = PackagingPRAnalyzer("test_owner", "test_repo", "dummy_key")
+        self.analyzer = PackagingVersionAnalyzer("test_owner", "test_repo", "dummy_key")
 
     def test_extract_final_response_with_thinking_tags(self):
         """Test extraction from content with <thinking> tags."""
