@@ -13,7 +13,13 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Set, cast
+from typing import List, Dict, Any, Optional, Set, cast, Tuple
+
+# Type checking imports
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    pass
 
 import openai
 from mcp import ClientSession, StdioServerParameters
@@ -667,6 +673,450 @@ Provide concise, technical summaries that help developers understand the packagi
 
         return analysis
 
+    async def _regenerate_patch_with_llm(
+        self, patch_file: Path, repo_dir: Path, ref: str
+    ) -> Optional[str]:
+        """
+        Use LLM to regenerate a patch file when the original fails to apply.
+
+        Args:
+            patch_file: Path to the original patch file that failed
+            repo_dir: Path to the cloned repository
+            ref: Git reference being tested
+
+        Returns:
+            The regenerated patch content if successful, None otherwise
+        """
+        try:
+            # Read the original patch content
+            with open(patch_file, "r", encoding="utf-8", errors="ignore") as f:
+                original_patch = f.read()
+
+            # Extract target files from the patch using multiple methods
+            target_files: List[str] = []
+
+            # Method 1: Look for "--- a/" and "+++ b/" lines
+            for line in original_patch.split("\n"):
+                if line.startswith("--- a/") or line.startswith("+++ b/"):
+                    parts = line.split("/", 1)
+                    if len(parts) > 1:
+                        file_path = parts[1]
+                        if file_path not in target_files and not file_path.startswith(
+                            "dev/null"
+                        ):
+                            target_files.append(file_path)
+
+            # Method 2: Look for "diff --git a/file b/file" lines if method 1 failed
+            if not target_files:
+                for line in original_patch.split("\n"):
+                    if line.startswith("diff --git"):
+                        match = re.search(r"diff --git a/(.+)\s+b/(.+)", line)
+                        if match:
+                            file_path = match.group(1)
+                            if (
+                                file_path not in target_files
+                                and not file_path.startswith("dev/null")
+                            ):
+                                target_files.append(file_path)
+
+            # Method 3: Look for any file paths mentioned in the patch
+            if not target_files:
+                # Try to find file paths that look like they could be target files
+                # This is a fallback for unusual patch formats
+                lines = original_patch.split("\n")
+                for i, line in enumerate(lines):
+                    if "Checking patch" in line or "patch failed:" in line:
+                        # Extract file path from error messages
+                        for word in line.split():
+                            if "/" in word or word.endswith(
+                                (
+                                    ".txt",
+                                    ".py",
+                                    ".c",
+                                    ".cpp",
+                                    ".h",
+                                    ".cmake",
+                                    ".toml",
+                                    ".cfg",
+                                    ".yml",
+                                    ".yaml",
+                                )
+                            ):
+                                cleaned_word = word.rstrip(".:;,")
+                                if cleaned_word and cleaned_word not in target_files:
+                                    target_files.append(cleaned_word)
+
+            if not target_files:
+                return None
+
+            # Get current content of target files
+            current_files_content = {}
+            for file_path in target_files:
+                target_path = repo_dir / file_path
+                if target_path.exists():
+                    try:
+                        with open(
+                            target_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
+                            current_files_content[file_path] = f.read()
+                    except Exception:
+                        continue
+
+            if not current_files_content:
+                return None
+
+            # Prepare the LLM prompt
+            files_context = ""
+            for file_path, content in current_files_content.items():
+                files_context += (
+                    f"\n--- Current content of {file_path} ---\n{content}\n"
+                )
+
+            prompt = f"""You are a patch regeneration expert. A patch file failed to apply to a repository at reference '{ref}'.
+
+Your task is to analyze the original patch and the current file content, then generate a new patch that achieves the same intended changes but applies cleanly to the current codebase.
+
+Original patch that failed:
+```
+{original_patch}
+```
+
+Current file content:{files_context}
+
+IMPORTANT ANALYSIS GUIDELINES:
+1. Look at what lines the original patch REMOVED (lines starting with '-') and ensure they are removed from the current content
+2. Look at what lines the original patch ADDED (lines starting with '+') and ensure they are added in the appropriate location
+3. If a line that should be removed has moved to a different location in the current file, find it and remove it from there
+4. If dependencies or content have been reordered, adapt the patch to work with the current structure
+5. Maintain the same intent: removals should still be removed, additions should still be added
+
+Please generate a new patch in unified diff format that:
+1. Achieves the EXACT SAME INTENT as the original patch (same additions, same removals)
+2. Applies cleanly to the current file content by finding the correct locations
+3. Uses proper unified diff format with correct line numbers
+4. Includes appropriate context lines
+5. Can be applied using 'patch -p1' command
+
+Return ONLY the patch content, no explanations or markdown formatting."""
+
+            # Call the LLM
+            response = self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """You are an expert patch regeneration system that creates unified diff patches. You understand patch formats and can adapt patches to different codebases while preserving the original intent.
+
+Key principles:
+1. PRESERVE INTENT: If the original patch removed a line, the new patch must also remove that line (even if it moved)
+2. PRESERVE INTENT: If the original patch added a line, the new patch must also add that line
+3. ADAPT LOCATIONS: Find where removed lines are located in the current file and remove them from there
+4. ADAPT LOCATIONS: Add new lines in the most appropriate location based on the current file structure
+5. HANDLE REORDERING: Account for content that may have been reordered or moved since the original patch
+
+Always generate valid unified diff format patches that can be applied with 'patch -p1' and achieve the exact same end result as the original patch intended.""",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=2000,
+                temperature=0.1,
+            )
+
+            content = response.choices[0].message.content  # type: ignore
+            if content:
+                # Handle reasoning models that include reasoning steps
+                regenerated_patch = self._extract_final_response(content)
+                # Fix the line numbers in the patch headers
+                fixed_patch = self._fix_patch_line_numbers(
+                    regenerated_patch, current_files_content
+                )
+                return fixed_patch.strip()
+
+        except Exception as e:
+            print(f"LLM patch regeneration failed: {e}")
+
+        return None
+
+    def _fix_patch_line_numbers(
+        self, patch_content: str, current_files_content: Dict[str, str]
+    ) -> str:
+        """
+        Fix the line numbers in unified diff headers by computing them based on actual content.
+
+        Args:
+            patch_content: The patch content with potentially incorrect line numbers
+            current_files_content: Dictionary mapping file paths to their current content
+
+        Returns:
+            Patch content with corrected line numbers
+        """
+        lines = patch_content.split("\n")
+        fixed_lines = []
+        current_file = None
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+
+            # Track which file we're working with
+            if line.startswith("diff --git"):
+                fixed_lines.append(line)
+                current_file = None
+                # Extract file path from diff line
+                match = re.search(r"diff --git a/(.+)\s+b/", line)
+                if match:
+                    current_file = match.group(1)
+            elif line.startswith("--- a/") or line.startswith("+++ b/"):
+                fixed_lines.append(line)
+            elif (
+                line.startswith("@@")
+                and current_file
+                and current_file in current_files_content
+            ):
+                # This is a hunk header that needs fixing
+                hunk_lines = []
+                context_lines = []
+                additions = []
+                removals = []
+
+                # Look ahead to collect all lines in this hunk
+                j = i + 1
+                while j < len(lines) and not (
+                    lines[j].startswith("@@") or lines[j].startswith("diff --git")
+                ):
+                    hunk_line = lines[j]
+                    hunk_lines.append(hunk_line)
+
+                    if hunk_line.startswith("+"):
+                        additions.append(hunk_line[1:])  # Remove the +
+                    elif hunk_line.startswith("-"):
+                        removals.append(hunk_line[1:])  # Remove the -
+                    elif hunk_line.startswith(" "):
+                        context_lines.append(hunk_line[1:])  # Remove the space
+                    else:
+                        # Line without prefix, treat as context
+                        context_lines.append(hunk_line)
+                    j += 1
+
+                # Find the location in the original file where this hunk should apply
+                file_content = current_files_content[current_file]
+                file_lines = file_content.split("\n")
+
+                # Find the best match for the context and removals in the original file
+                old_start, old_count, new_start, new_count = (
+                    self._calculate_hunk_location(
+                        file_lines, hunk_lines, context_lines, removals, additions
+                    )
+                )
+
+                # Create the corrected hunk header
+                fixed_header = (
+                    f"@@ -{old_start},{old_count} +{new_start},{new_count} @@"
+                )
+                fixed_lines.append(fixed_header)
+
+                # Add all the hunk lines
+                fixed_lines.extend(hunk_lines)
+
+                # Skip the lines we already processed
+                i = j - 1
+            else:
+                fixed_lines.append(line)
+
+            i += 1
+
+        return "\n".join(fixed_lines)
+
+    def _calculate_hunk_location(
+        self,
+        file_lines: List[str],
+        hunk_lines: List[str],
+        context_lines: List[str],
+        removals: List[str],
+        additions: List[str],
+    ) -> Tuple[int, int, int, int]:
+        """
+        Calculate the correct line numbers for a hunk.
+
+        Returns:
+            (old_start, old_count, new_start, new_count)
+        """
+        # Find lines that should be present in the original file (context + removals)
+        original_lines = []
+        for line in hunk_lines:
+            if line.startswith(" ") or line.startswith("-"):
+                original_lines.append(line[1:] if line else "")
+            elif not line.startswith("+"):
+                # Line without prefix, treat as context
+                original_lines.append(line)
+
+        if not original_lines:
+            # If no original lines to match, find best position for additions
+            old_start = 1
+            old_count = 0
+            new_start = 1
+            new_count = len(additions)
+            return old_start, old_count, new_start, new_count
+
+        # Find the best match in the file
+        best_match = -1
+        best_score = -1
+
+        for start_idx in range(len(file_lines)):
+            # Check how many consecutive lines match
+            score = 0
+            for i, orig_line in enumerate(original_lines):
+                if (
+                    start_idx + i < len(file_lines)
+                    and file_lines[start_idx + i].strip() == orig_line.strip()
+                ):
+                    score += 1
+                else:
+                    break
+
+            if score > best_score:
+                best_score = score
+                best_match = start_idx
+
+        if best_match == -1:
+            # Fallback: place at the beginning
+            best_match = 0
+
+        # Calculate counts
+        old_count = len(
+            [
+                line
+                for line in hunk_lines
+                if line.startswith(" ") or line.startswith("-")
+            ]
+        )
+        new_count = len(
+            [
+                line
+                for line in hunk_lines
+                if line.startswith(" ") or line.startswith("+")
+            ]
+        )
+
+        # Handle lines without prefixes as context
+        no_prefix_count = len(
+            [line for line in hunk_lines if not line.startswith(("+", "-", " "))]
+        )
+        old_count += no_prefix_count
+        new_count += no_prefix_count
+
+        old_start = best_match + 1  # Line numbers are 1-based
+        new_start = best_match + 1
+
+        return old_start, old_count, new_start, new_count
+
+    async def _test_regenerated_patch(
+        self,
+        regenerated_patch: str,
+        repo_dir: Path,
+        original_patch_name: str,
+        json_output: bool,
+        show_content_always: bool = False,
+    ) -> bool:
+        """
+        Test if the regenerated patch applies successfully and print it if it does.
+
+        Args:
+            regenerated_patch: The LLM-generated patch content
+            repo_dir: Path to the cloned repository
+            original_patch_name: Name of the original patch file
+            json_output: Whether we're in JSON output mode
+
+        Returns:
+            True if patch applies successfully, False otherwise
+        """
+        try:
+            # Ensure repository is in clean state before testing
+            reset_result = subprocess.run(
+                ["git", "reset", "--hard", "HEAD"],
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+            )
+
+            if reset_result.returncode != 0:
+                if not json_output:
+                    print(
+                        f"Warning: Could not reset repository to clean state: {reset_result.stderr}"
+                    )
+
+            # Write the regenerated patch to a temporary file
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".patch", delete=False
+            ) as tmp_file:
+                # Ensure patch ends with newline to avoid "malformed patch" errors
+                patch_content = regenerated_patch
+                if not patch_content.endswith("\n"):
+                    patch_content += "\n"
+                tmp_file.write(patch_content)
+                tmp_patch_path = tmp_file.name
+
+            try:
+                # Test if the regenerated patch applies using patch -p1
+                test_result = subprocess.run(
+                    ["patch", "-p1", "--dry-run", "--fuzz=0", "-i", tmp_patch_path],
+                    cwd=repo_dir,
+                    capture_output=True,
+                    text=True,
+                )
+
+                if test_result.returncode == 0:
+                    if not json_output:
+                        print(
+                            f"✓ Successfully regenerated patch for {original_patch_name}"
+                        )
+                        print("=" * 60)
+                        print("REGENERATED PATCH CONTENT:")
+                        print("=" * 60)
+                        print(regenerated_patch)
+                        print("=" * 60)
+                        print(
+                            f"The above patch content can be saved to replace {original_patch_name}"
+                        )
+                        print("=" * 60)
+                    return True
+                else:
+                    if not json_output:
+                        if show_content_always:
+                            print(
+                                f"✗ Regenerated patch for {original_patch_name} still doesn't apply, but showing content:"
+                            )
+                            print("=" * 60)
+                            print("REGENERATED PATCH CONTENT (DOES NOT APPLY):")
+                            print("=" * 60)
+                            print(regenerated_patch)
+                            print("=" * 60)
+                            print(
+                                f"The above patch content was generated but does not apply to {original_patch_name}"
+                            )
+                            print("=" * 60)
+                        else:
+                            print(
+                                f"Regenerated patch for {original_patch_name} still doesn't apply"
+                            )
+                    return False
+
+            finally:
+                # Clean up temporary file
+                import os
+
+                try:
+                    os.unlink(tmp_patch_path)
+                except OSError:
+                    pass
+
+        except Exception as e:
+            if not json_output:
+                print(f"Error testing regenerated patch: {e}")
+            return False
+
     def _generate_jira_content(
         self, failed_patches: List[PatchFailure], ref: str
     ) -> str:
@@ -788,9 +1238,16 @@ Provide concise, technical summaries that help developers understand the packagi
                     if not json_output:
                         print(f"\nTesting patch: {patch_file.name}")
 
-                    # Try to apply the patch with --dry-run first
+                    # Try to apply the patch with --dry-run first using patch -p1
                     patch_result = subprocess.run(
-                        ["git", "apply", "--check", "--verbose", str(patch_file)],
+                        [
+                            "patch",
+                            "-p1",
+                            "--dry-run",
+                            "--fuzz=0",
+                            "-i",
+                            str(patch_file),
+                        ],
                         cwd=repo_dir,
                         capture_output=True,
                         text=True,
@@ -817,16 +1274,43 @@ Provide concise, technical summaries that help developers understand the packagi
                             print(f"✗ Patch {patch_file.name} FAILED to apply")
                             for line in error_output:
                                 print(line)
-                            print("  Attempting to get more diagnostic information...")
+                            print("  Attempting LLM-powered patch regeneration...")
+
+                        # Try to regenerate the patch using LLM
+                        regenerated_patch = await self._regenerate_patch_with_llm(
+                            patch_file, repo_dir, ref
+                        )
+                        if regenerated_patch:
+                            # Test the regenerated patch and always show the content
+                            regenerated_patch_result = (
+                                await self._test_regenerated_patch(
+                                    regenerated_patch,
+                                    repo_dir,
+                                    patch_file.name,
+                                    json_output,
+                                    show_content_always=True,
+                                )
+                            )
+                            if regenerated_patch_result:
+                                continue  # Skip the rest of the error handling since patch was successfully regenerated
+                        else:
+                            if not json_output:
+                                print(
+                                    f"LLM failed to regenerate patch for {patch_file.name}"
+                                )
+
+                        if not json_output:
+                            print("  Continuing with diagnostic information...")
 
                         # Try with different patch options for better diagnostics
                         diagnostic_result = subprocess.run(
                             [
-                                "git",
-                                "apply",
-                                "--check",
-                                "--verbose",
+                                "patch",
+                                "-p1",
+                                "--dry-run",
                                 "--ignore-whitespace",
+                                "--fuzz=0",
+                                "-i",
                                 str(patch_file),
                             ],
                             cwd=repo_dir,

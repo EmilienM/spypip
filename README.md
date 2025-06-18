@@ -10,7 +10,7 @@ SpyPip is a tool that analyzes GitHub repositories to compare commits between tw
 - 🏷️ **Version Comparison**: Compare commits between two tags/versions or between latest tag and main branch
 - � **Custom File Monitoring**: Override default patterns by providing patch files with custom file paths to monitor
 - 🤖 **AI Summaries**: Leverages LLM to generate concise summaries of packaging changes
-- 📊 **Comprehensive Analysis**: Analyzes dependencies, build configurations, containerization changes, and version constraints
+- 🔧 **AI Patch Regeneration**: When patches fail to apply, automatically attempts to regenerate them using LLM analysis of the current codebase
 - 🔗 **GitHub Integration**: Seamlessly integrates with GitHub API via MCP (Model Context Protocol)
 - 🧠 **Reasoning Model Support**: Compatible with reasoning models that include thinking steps in responses
 
@@ -237,8 +237,9 @@ This mode will:
 1. Clone the repository to a temporary directory (including submodules)
 2. Checkout the specified reference (defaults to `main`)
 3. Test each `.patch` and `.diff` file to see if it can be applied
-4. Provide detailed diagnostic information for any patches that fail
-5. Exit with status code 0 if all patches apply successfully, or 1 if any fail
+4. **AI Patch Regeneration**: When a patch fails to apply, automatically attempt to regenerate it using LLM analysis
+5. Provide detailed diagnostic information for any patches that fail
+6. Exit with status code 0 if all patches apply successfully, or 1 if any fail
 
 #### JSON Output Format
 
