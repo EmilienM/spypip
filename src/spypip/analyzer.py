@@ -300,6 +300,47 @@ class PackagingVersionAnalyzer:
             print(f"Error fetching latest tag: {e}")
             return None
 
+    async def get_previous_tag(self, to_tag: str) -> Optional[str]:
+        """Get the tag that comes before the specified tag in chronological order."""
+        try:
+            if self.mcp_session is None:
+                return None
+
+            # Get all tags with a reasonable limit
+            result = await self.mcp_session.call_tool(
+                "list_tags",
+                {
+                    "owner": self.repo_owner,
+                    "repo": self.repo_name,
+                    "perPage": 100,  # Get more tags to find the previous one
+                },
+            )
+
+            if hasattr(result, "content") and result.content:
+                first_content = result.content[0]
+                if hasattr(first_content, "text"):
+                    data = json.loads(first_content.text)
+                    if isinstance(data, list) and len(data) > 0:
+                        tags = [str(tag["name"]) for tag in data]
+
+                        # Find the to_tag in the list
+                        try:
+                            to_tag_index = tags.index(to_tag)
+                            # If we found the tag and there's a previous one, return it
+                            if to_tag_index + 1 < len(tags):
+                                return tags[to_tag_index + 1]
+                        except ValueError:
+                            # to_tag not found in the list, might need more tags
+                            print(
+                                f"Warning: Tag '{to_tag}' not found in the first {len(tags)} tags"
+                            )
+                            pass
+            return None
+
+        except Exception as e:
+            print(f"Error fetching previous tag for {to_tag}: {e}")
+            return None
+
     async def get_commits_between_refs(
         self, from_ref: str, to_ref: str
     ) -> List[Dict[str, Any]]:
@@ -1438,14 +1479,33 @@ Always generate valid unified diff format patches that can be applied with 'patc
 
         # Determine the from_tag if not provided
         if not from_tag:
-            from_tag = await self.get_latest_tag()
-            if not from_tag:
-                print(
-                    "Warning: No tags found in repository. Using 'HEAD~10' as fallback."
-                )
-                from_tag = "HEAD~10"
+            # If to_tag is specified and not 'main', try to get the previous tag
+            if to_tag != "main":
+                from_tag = await self.get_previous_tag(to_tag)
+                if from_tag:
+                    print(f"Using previous tag as from_tag: {from_tag}")
+                else:
+                    print(
+                        f"Warning: Could not find a tag before '{to_tag}'. Using latest tag as fallback."
+                    )
+                    from_tag = await self.get_latest_tag()
+                    if not from_tag:
+                        print(
+                            "Warning: No tags found in repository. Using 'HEAD~10' as fallback."
+                        )
+                        from_tag = "HEAD~10"
+                    else:
+                        print(f"Using latest tag as from_tag: {from_tag}")
             else:
-                print(f"Using latest tag as from_tag: {from_tag}")
+                # For 'main' or default case, use latest tag as before
+                from_tag = await self.get_latest_tag()
+                if not from_tag:
+                    print(
+                        "Warning: No tags found in repository. Using 'HEAD~10' as fallback."
+                    )
+                    from_tag = "HEAD~10"
+                else:
+                    print(f"Using latest tag as from_tag: {from_tag}")
 
         print(f"Comparing commits from {from_tag} to {to_tag}")
 
