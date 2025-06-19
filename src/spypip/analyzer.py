@@ -82,11 +82,13 @@ class PackagingVersionAnalyzer:
         openai_api_key: str,
         patches_dir: Optional[str] = None,
         json_output: bool = False,
+        max_commits: int = 50,
     ):
         self.repo_owner = repo_owner
         self.repo_name = repo_name
         self.patches_dir = patches_dir
         self.json_output = json_output
+        self.max_commits = max_commits
         base_url = os.getenv(
             "OPENAI_ENDPOINT_URL", "https://models.github.ai/inference"
         )
@@ -357,11 +359,11 @@ class PackagingVersionAnalyzer:
             from_commit = await self.get_commit_info(from_ref)
             from_sha = from_commit["sha"] if from_commit else None
 
-            all_commits = []
+            all_commits: List[Dict[str, Any]] = []
             page = 1
             per_page = 100
 
-            while True:
+            while len(all_commits) < self.max_commits:
                 # Get commits from the to_ref branch with pagination
                 result = await self.mcp_session.call_tool(
                     "list_commits",
@@ -394,14 +396,29 @@ class PackagingVersionAnalyzer:
                         found_from_ref = True
                         break
                     all_commits.append(commit)
+                    # Check if we've reached the max commits limit
+                    if len(all_commits) >= self.max_commits:
+                        break
 
                 # If we found the from_ref commit or got less than per_page commits, we're done
-                if found_from_ref or len(page_commits) < per_page:
+                # Also break if we've reached the max commits limit
+                if (
+                    found_from_ref
+                    or len(page_commits) < per_page
+                    or len(all_commits) >= self.max_commits
+                ):
                     break
 
                 page += 1
 
-            print(f"Found {len(all_commits)} commits between {from_ref} and {to_ref}")
+            if len(all_commits) >= self.max_commits:
+                print(
+                    f"Found {len(all_commits)} commits between {from_ref} and {to_ref} (limited to {self.max_commits})"
+                )
+            else:
+                print(
+                    f"Found {len(all_commits)} commits between {from_ref} and {to_ref}"
+                )
             return all_commits
 
         except Exception as e:

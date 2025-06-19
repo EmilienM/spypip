@@ -23,6 +23,7 @@ Examples:
   python -m spypip vllm-project/vllm
   python -m spypip vllm-project/vllm --from-tag v1.0.0 --to-tag v1.1.0
   python -m spypip vllm-project/vllm --from-tag v1.0.0
+  python -m spypip vllm-project/vllm --max-commits 100
   python -m spypip vllm-project/vllm --patches-dir ./patches
   python -m spypip vllm-project/vllm --patches-dir ./patches --check-patch-apply-only
   python -m spypip vllm-project/vllm --patches-dir ./patches --check-patch-apply-only --json-output
@@ -65,6 +66,13 @@ Examples:
         help="Output patch failures in JSON format suitable for creating Jira tickets. Only used with --check-patch-apply-only.",
     )
 
+    parser.add_argument(
+        "--max-commits",
+        type=int,
+        default=50,
+        help="Maximum number of commits to inspect when analyzing PRs. Default is 50.",
+    )
+
     args = parser.parse_args()
 
     # Validate that --check-patch-apply-only requires --patches-dir
@@ -74,6 +82,10 @@ Examples:
     # Validate that --json-output requires --check-patch-apply-only
     if args.json_output and not args.check_patch_apply_only:
         parser.error("--json-output requires --check-patch-apply-only to be specified")
+
+    # Validate that --max-commits is positive
+    if args.max_commits <= 0:
+        parser.error("--max-commits must be a positive integer")
 
     return args
 
@@ -109,6 +121,7 @@ async def async_main():
             openai_api_key,
             patches_dir=args.patches_dir,
             json_output=args.json_output,
+            max_commits=args.max_commits,
         ) as analyzer:
             if args.check_patch_apply_only:
                 # Only check patch application

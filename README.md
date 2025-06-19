@@ -199,6 +199,11 @@ Compare from specific tag to main:
 python -m spypip vllm-project/vllm --from-tag v1.0.0
 ```
 
+Limit the number of commits to analyze (default is 50):
+```bash
+python -m spypip vllm-project/vllm --max-commits 100
+```
+
 ### Custom File Monitoring with Patch Files
 
 You can override the default list of packaging files by providing a directory containing patch files:
