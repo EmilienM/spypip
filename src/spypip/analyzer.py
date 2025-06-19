@@ -1220,7 +1220,7 @@ Always generate valid unified diff format patches that can be applied with 'patc
                     ],
                     capture_output=True,
                     text=True,
-                    timeout=300,
+                    timeout=1800,
                 )
 
                 if clone_result.returncode != 0:
