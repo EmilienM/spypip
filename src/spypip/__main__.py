@@ -10,7 +10,8 @@ import asyncio
 import sys
 
 from .analyzer import PackagingVersionAnalyzer
-from .config import load_environment_variables, get_required_env_var
+from .config import get_required_env_var, load_environment_variables
+from .utils import validate_repository_format
 
 
 def parse_arguments():
@@ -97,12 +98,12 @@ async def async_main():
     args = parse_arguments()
 
     # Parse repository argument
-    if "/" not in args.repository:
-        print("Error: Repository must be in format 'owner/repo'")
+    try:
+        repo_owner, repo_name = validate_repository_format(args.repository)
+    except ValueError as e:
+        print(f"Error: {e}")
         print("Example: python -m spypip vllm-project/vllm")
         sys.exit(1)
-
-    repo_owner, repo_name = args.repository.split("/", 1)
 
     # Get required environment variables
     openai_api_key = get_required_env_var("OPENAI_API_KEY")
@@ -116,8 +117,7 @@ async def async_main():
     success = True
     try:
         async with PackagingVersionAnalyzer(
-            repo_owner,
-            repo_name,
+            args.repository,
             openai_api_key,
             patches_dir=args.patches_dir,
             json_output=args.json_output,
@@ -125,9 +125,7 @@ async def async_main():
         ) as analyzer:
             if args.check_patch_apply_only:
                 # Only check patch application
-                success = await analyzer.check_patch_application(
-                    args.to_tag, json_output=args.json_output
-                )
+                success = await analyzer.check_patch_application(args.to_tag)
             else:
                 # Run full analysis
                 results = await analyzer.analyze_repository(

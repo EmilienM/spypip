@@ -5,6 +5,7 @@ import pytest
 from pathlib import Path
 
 from spypip.analyzer import PackagingVersionAnalyzer
+from spypip.constants import DEFAULT_PACKAGING_PATTERNS
 
 
 class TestPatchFileHandling:
@@ -12,12 +13,12 @@ class TestPatchFileHandling:
 
     def test_default_patterns_when_no_patches_dir(self):
         """Test that default patterns are used when no patches directory is provided."""
-        analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key")
+        analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key")
 
         # Should use default patterns
-        assert analyzer.file_patterns == analyzer.PACKAGING_PATTERNS
+        assert analyzer.file_patterns == DEFAULT_PACKAGING_PATTERNS
         assert analyzer.patches_dir is None
-        assert len(analyzer.patch_file_paths) == 0
+        assert len(analyzer.patch_manager.patch_file_paths) == 0
 
         # Test some default pattern matching
         assert analyzer.is_patched("requirements.txt")
@@ -27,12 +28,12 @@ class TestPatchFileHandling:
 
     def test_nonexistent_patches_dir_falls_back_to_defaults(self):
         """Test that nonexistent patches directory falls back to default patterns."""
-        analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key", patches_dir="/nonexistent/path")
+        analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key", patches_dir="/nonexistent/path")
 
         # Should fall back to default patterns
-        assert analyzer.file_patterns == analyzer.PACKAGING_PATTERNS
+        assert analyzer.file_patterns == DEFAULT_PACKAGING_PATTERNS
         assert analyzer.patches_dir == "/nonexistent/path"
-        assert len(analyzer.patch_file_paths) == 0
+        assert len(analyzer.patch_manager.patch_file_paths) == 0
 
     def test_git_patch_file_parsing(self):
         """Test parsing file paths from git patch files."""
@@ -62,7 +63,7 @@ index 2345678..bcdefgh 100644
             patch_file = patches_dir / "changes.patch"
             patch_file.write_text(patch_content)
 
-            analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key", patches_dir=str(patches_dir))
+            analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key", patches_dir=str(patches_dir))
 
             # Should detect the exact custom files from patches
             assert analyzer.is_patched("custom-requirements.txt")
@@ -91,7 +92,7 @@ build-constraints.txt
             file_list = patches_dir / "file_list.txt"
             file_list.write_text(file_list_content)
 
-            analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key", patches_dir=str(patches_dir))
+            analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key", patches_dir=str(patches_dir))
 
             # Should detect the exact custom files from text file
             assert analyzer.is_patched("project-requirements.txt")
@@ -136,7 +137,7 @@ deployment/Dockerfile
             (patches_dir / "patch2.diff").write_text(patch2_content)
             (patches_dir / "files.txt").write_text(file_list_content)
 
-            analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key", patches_dir=str(patches_dir))
+            analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key", patches_dir=str(patches_dir))
 
             # Should detect exact files from all patch sources
             assert analyzer.is_patched("requirements-dev.txt")
@@ -152,11 +153,11 @@ deployment/Dockerfile
         with tempfile.TemporaryDirectory() as temp_dir:
             patches_dir = Path(temp_dir)
 
-            analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key", patches_dir=str(patches_dir))
+            analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key", patches_dir=str(patches_dir))
 
             # Should fall back to default patterns
-            assert analyzer.file_patterns == analyzer.PACKAGING_PATTERNS
-            assert len(analyzer.patch_file_paths) == 0
+            assert analyzer.file_patterns == DEFAULT_PACKAGING_PATTERNS
+            assert len(analyzer.patch_manager.patch_file_paths) == 0
 
             # Test default pattern matching still works
             assert analyzer.is_patched("requirements.txt")
@@ -170,8 +171,8 @@ deployment/Dockerfile
             not_a_dir = patches_dir / "not_a_directory.txt"
             not_a_dir.write_text("This is a file, not a directory")
 
-            analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key", patches_dir=str(not_a_dir))
+            analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key", patches_dir=str(not_a_dir))
 
             # Should fall back to default patterns
-            assert analyzer.file_patterns == analyzer.PACKAGING_PATTERNS
-            assert len(analyzer.patch_file_paths) == 0
+            assert analyzer.file_patterns == DEFAULT_PACKAGING_PATTERNS
+            assert len(analyzer.patch_manager.patch_file_paths) == 0

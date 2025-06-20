@@ -15,7 +15,7 @@ class TestMaxCommits:
     async def test_max_commits_parameter_initialization(self):
         """Test that max_commits parameter is properly initialized."""
         analyzer = PackagingVersionAnalyzer(
-            "test_owner", "test_repo", "fake_api_key", max_commits=25
+            "test_owner/test_repo", "fake_api_key", max_commits=25
         )
         assert analyzer.max_commits == 25
 
@@ -23,7 +23,7 @@ class TestMaxCommits:
     async def test_max_commits_default_value(self):
         """Test that max_commits has the correct default value."""
         analyzer = PackagingVersionAnalyzer(
-            "test_owner", "test_repo", "fake_api_key"
+            "test_owner/test_repo", "fake_api_key"
         )
         assert analyzer.max_commits == 50
 
@@ -31,12 +31,14 @@ class TestMaxCommits:
     async def test_get_commits_between_refs_respects_max_commits(self):
         """Test that get_commits_between_refs respects the max_commits limit."""
         analyzer = PackagingVersionAnalyzer(
-            "test_owner", "test_repo", "fake_api_key", max_commits=3
+            "test_owner/test_repo", "fake_api_key", max_commits=3
         )
         
-        # Mock the MCP session
+        # Initialize and mock the GitHub client
+        from spypip.github_client import GitHubMCPClient
+        analyzer.github_client = GitHubMCPClient()
         mock_session = AsyncMock()
-        analyzer.mcp_session = mock_session
+        analyzer.github_client.mcp_session = mock_session
         
         # Mock the commit info response (for from_ref)
         mock_commit_response = Mock()
@@ -77,12 +79,14 @@ class TestMaxCommits:
     async def test_get_commits_between_refs_stops_at_from_ref(self):
         """Test that get_commits_between_refs stops at from_ref even if max_commits is higher."""
         analyzer = PackagingVersionAnalyzer(
-            "test_owner", "test_repo", "fake_api_key", max_commits=10
+            "test_owner/test_repo", "fake_api_key", max_commits=10
         )
         
-        # Mock the MCP session
+        # Initialize and mock the GitHub client
+        from spypip.github_client import GitHubMCPClient
+        analyzer.github_client = GitHubMCPClient()
         mock_session = AsyncMock()
-        analyzer.mcp_session = mock_session
+        analyzer.github_client.mcp_session = mock_session
         
         # Mock the commit info response (for from_ref)
         mock_commit_response = Mock()

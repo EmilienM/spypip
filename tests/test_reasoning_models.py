@@ -1,16 +1,16 @@
 """Tests for reasoning model response handling."""
 
 import pytest
-from spypip.analyzer import PackagingVersionAnalyzer
+from spypip.utils import clean_reasoning_response
 
 
 class TestReasoningModelSupport:
     """Test support for reasoning models that include reasoning steps."""
 
     def setup_method(self):
-        """Set up test analyzer instance."""
-        # Create analyzer with dummy values since we're only testing the response parsing
-        self.analyzer = PackagingVersionAnalyzer("test_owner", "test_repo", "dummy_key")
+        """Set up test utilities."""
+        # We're testing the utility function directly
+        pass
 
     def test_extract_final_response_with_thinking_tags(self):
         """Test extraction from content with <thinking> tags."""
@@ -22,7 +22,7 @@ The patch shows that numpy is being updated from 1.21.0 to 1.24.0, which is a si
 
 This PR updates numpy from version 1.21.0 to 1.24.0 in requirements.txt. This is a significant version bump that may introduce breaking changes and should be tested thoroughly."""
 
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         expected = "This PR updates numpy from version 1.21.0 to 1.24.0 in requirements.txt. This is a significant version bump that may introduce breaking changes and should be tested thoroughly."
         assert result == expected
 
@@ -42,7 +42,7 @@ This PR introduces several packaging changes:
 - Updates pytest from 7.0.0 to 7.4.0 in dev dependencies
 - Modifies build system configuration in pyproject.toml"""
 
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         expected = """This PR introduces several packaging changes:
 - Adds requests>=2.28.0 as a new runtime dependency
 - Updates pytest from 7.0.0 to 7.4.0 in dev dependencies
@@ -61,14 +61,14 @@ The PR touches requirements.txt and Dockerfile, indicating both dependency and c
 
 The PR updates Docker base image and adds new Python dependencies for enhanced security features."""
 
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         expected = "The PR updates Docker base image and adds new Python dependencies for enhanced security features."
         assert result == expected
 
     def test_extract_final_response_without_reasoning_tags(self):
         """Test that content without reasoning tags is returned unchanged."""
         content = "This is a straightforward dependency update that adds Flask 2.3.0 to the requirements."
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         assert result == content
 
     def test_extract_final_response_with_case_insensitive_tags(self):
@@ -83,14 +83,14 @@ This looks like a security update.
 
 Critical security update: bumps cryptography from 3.4.8 to 41.0.4 to address CVE-2023-38325."""
 
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         expected = "Critical security update: bumps cryptography from 3.4.8 to 41.0.4 to address CVE-2023-38325."
         assert result == expected
 
     def test_extract_final_response_empty_content(self):
         """Test handling of empty content."""
-        assert self.analyzer._extract_final_response("") == ""
-        assert self.analyzer._extract_final_response(None) is None
+        assert clean_reasoning_response("") == ""
+        assert clean_reasoning_response(None) is None
 
     def test_extract_final_response_only_reasoning_content(self):
         """Test handling when content contains only reasoning with no final answer."""
@@ -100,7 +100,7 @@ The user probably expects some analysis but there's no clear answer here.
 </thinking>"""
 
         # Should return original content when cleaned result is too short
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         assert result == content
 
     def test_extract_final_response_with_various_tags(self):
@@ -119,7 +119,7 @@ This affects build processes.
 
 The PR modifies tox.ini to add Python 3.11 support and updates testing configurations."""
 
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         expected = "The PR modifies tox.ini to add Python 3.11 support and updates testing configurations."
         assert result == expected
 
@@ -143,7 +143,7 @@ This PR includes:
 
 **Risk Assessment**: Medium - version updates require testing."""
 
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         
         # Should preserve the markdown formatting and structure
         assert "## Summary" in result
@@ -159,7 +159,7 @@ This seems to be a dependency update.
 
 This PR updates the requirements.txt file to include newer versions of critical dependencies."""
 
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         expected = "This PR updates the requirements.txt file to include newer versions of critical dependencies."
         assert result == expected
 
@@ -172,7 +172,7 @@ The changes show version updates for several packages.
 
 This PR updates several development dependencies in pyproject.toml, including pytest and black formatting tool."""
 
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         expected = "This PR updates several development dependencies in pyproject.toml, including pytest and black formatting tool."
         assert result == expected
 
@@ -185,7 +185,7 @@ The update looks like it addresses known vulnerabilities.
 
 Security update: This PR addresses CVE-2023-12345 by updating the vulnerable package from 1.0.0 to 1.2.3."""
 
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         expected = "Security update: This PR addresses CVE-2023-12345 by updating the vulnerable package from 1.0.0 to 1.2.3."
         assert result == expected
 
@@ -198,6 +198,6 @@ Let me check if there are any breaking changes.
 
 Routine maintenance: Updates multiple dependencies to their latest stable versions with no breaking changes expected."""
 
-        result = self.analyzer._extract_final_response(content)
+        result = clean_reasoning_response(content)
         expected = "Routine maintenance: Updates multiple dependencies to their latest stable versions with no breaking changes expected."
         assert result == expected

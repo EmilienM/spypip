@@ -6,7 +6,6 @@ Handles loading environment variables from .env files and system environment.
 
 import os
 from pathlib import Path
-from typing import Optional
 
 try:
     from dotenv import load_dotenv
@@ -44,7 +43,7 @@ def load_environment_variables() -> None:
             break
 
 
-def get_required_env_var(var_name: str, description: Optional[str] = None) -> str:
+def get_required_env_var(var_name: str, description: str | None = None) -> str:
     """
     Get a required environment variable.
 

@@ -51,12 +51,12 @@ index 1234567..abcdefg 100644
  pytest==7.1.0
 """
             
-            analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key")
-            analyzer.openai_client = MagicMock()
-            analyzer.openai_client.chat.completions.create.return_value = mock_response
+            analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key")
+            analyzer.llm_client.client = MagicMock()
+            analyzer.llm_client.client.chat.completions.create.return_value = mock_response
             
             # Test the regeneration
-            result = await analyzer._regenerate_patch_with_llm(patch_file, repo_dir, "main")
+            result = await analyzer.patch_manager.regenerate_patch_with_llm(patch_file, repo_dir, "main", analyzer.llm_client)
             
             assert result is not None
             assert "diff --git a/requirements.txt b/requirements.txt" in result
@@ -84,10 +84,10 @@ index 1234567..abcdefg 100644
             patch_file = Path(temp_dir) / "test.patch"
             patch_file.write_text(patch_content)
             
-            analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key")
+            analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key")
             
             # Test the regeneration - should return None for missing files
-            result = await analyzer._regenerate_patch_with_llm(patch_file, repo_dir, "main")
+            result = await analyzer.patch_manager.regenerate_patch_with_llm(patch_file, repo_dir, "main", analyzer.llm_client)
             
             assert result is None
 
@@ -124,11 +124,11 @@ index 1234567..abcdefg 100644
  pytest==7.1.0
 """
             
-            analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key")
+            analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key")
             
             # Test the regenerated patch
-            result = await analyzer._test_regenerated_patch(
-                regenerated_patch, repo_dir, "test.patch", json_output=True
+            result = await analyzer.patch_manager.test_regenerated_patch(
+                regenerated_patch, repo_dir, "test.patch"
             )
             
             assert result is True
@@ -160,11 +160,11 @@ index 1234567..abcdefg 100644
  gunicorn==20.1.0
 """
             
-            analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key")
+            analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key")
             
             # Test the regenerated patch - should fail
-            result = await analyzer._test_regenerated_patch(
-                regenerated_patch, repo_dir, "test.patch", json_output=True
+            result = await analyzer.patch_manager.test_regenerated_patch(
+                regenerated_patch, repo_dir, "test.patch"
             )
             
             assert result is False

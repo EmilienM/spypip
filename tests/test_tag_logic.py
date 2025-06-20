@@ -14,12 +14,15 @@ class TestTagLogic:
     @pytest.fixture
     def analyzer(self):
         """Create a test analyzer instance."""
-        return PackagingVersionAnalyzer("test", "repo", "fake_key")
+        return PackagingVersionAnalyzer("test/repo", "fake_key")
 
     async def test_get_previous_tag_basic(self, analyzer):
         """Test getting the previous tag in a simple case."""
+        # Initialize and mock the GitHub client
+        from spypip.github_client import GitHubMCPClient
+        analyzer.github_client = GitHubMCPClient()
         # Mock the MCP session
-        analyzer.mcp_session = AsyncMock()
+        analyzer.github_client.mcp_session = AsyncMock()
         
         # Mock response with tags in chronological order (newest first)
         mock_content = MagicMock()
@@ -33,7 +36,7 @@ class TestTagLogic:
         mock_result = MagicMock()
         mock_result.content = [mock_content]
         
-        analyzer.mcp_session.call_tool.return_value = mock_result
+        analyzer.github_client.mcp_session.call_tool.return_value = mock_result
         
         # Test getting previous tag for v3.0.0 should return v2.0.0
         result = await analyzer.get_previous_tag("v3.0.0")
@@ -41,8 +44,11 @@ class TestTagLogic:
 
     async def test_get_previous_tag_first_tag(self, analyzer):
         """Test getting previous tag when target is the oldest tag."""
+        # Initialize and mock the GitHub client
+        from spypip.github_client import GitHubMCPClient
+        analyzer.github_client = GitHubMCPClient()
         # Mock the MCP session
-        analyzer.mcp_session = AsyncMock()
+        analyzer.github_client.mcp_session = AsyncMock()
         
         # Mock response with tags
         mock_content = MagicMock()
@@ -55,7 +61,7 @@ class TestTagLogic:
         mock_result = MagicMock()
         mock_result.content = [mock_content]
         
-        analyzer.mcp_session.call_tool.return_value = mock_result
+        analyzer.github_client.mcp_session.call_tool.return_value = mock_result
         
         # Test getting previous tag for v1.0.0 should return None (no previous tag)
         result = await analyzer.get_previous_tag("v1.0.0")
@@ -63,8 +69,11 @@ class TestTagLogic:
 
     async def test_get_previous_tag_not_found(self, analyzer):
         """Test getting previous tag when target tag is not found."""
+        # Initialize and mock the GitHub client
+        from spypip.github_client import GitHubMCPClient
+        analyzer.github_client = GitHubMCPClient()
         # Mock the MCP session
-        analyzer.mcp_session = AsyncMock()
+        analyzer.github_client.mcp_session = AsyncMock()
         
         # Mock response with tags that don't include the target
         mock_content = MagicMock()
@@ -77,7 +86,7 @@ class TestTagLogic:
         mock_result = MagicMock()
         mock_result.content = [mock_content]
         
-        analyzer.mcp_session.call_tool.return_value = mock_result
+        analyzer.github_client.mcp_session.call_tool.return_value = mock_result
         
         # Test getting previous tag for a tag that doesn't exist
         result = await analyzer.get_previous_tag("v5.0.0")
@@ -85,8 +94,10 @@ class TestTagLogic:
 
     async def test_analyze_repository_uses_previous_tag(self, analyzer):
         """Test that analyze_repository uses get_previous_tag when from_tag is None and to_tag is not 'main'."""
-        # Mock the necessary methods
-        analyzer.mcp_session = AsyncMock()
+        # Initialize and mock the GitHub client
+        from spypip.github_client import GitHubMCPClient
+        analyzer.github_client = GitHubMCPClient()
+        analyzer.github_client.mcp_session = AsyncMock()
         analyzer.get_previous_tag = AsyncMock(return_value="v2.0.0")
         analyzer.get_commits_between_refs = AsyncMock(return_value=[])
         analyzer.analyze_commit_for_packaging_changes = AsyncMock(return_value=None)
@@ -102,8 +113,10 @@ class TestTagLogic:
 
     async def test_analyze_repository_fallback_to_latest_when_no_previous(self, analyzer):
         """Test fallback to latest tag when no previous tag is found."""
-        # Mock the necessary methods
-        analyzer.mcp_session = AsyncMock()
+        # Initialize and mock the GitHub client
+        from spypip.github_client import GitHubMCPClient
+        analyzer.github_client = GitHubMCPClient()
+        analyzer.github_client.mcp_session = AsyncMock()
         analyzer.get_previous_tag = AsyncMock(return_value=None)  # No previous tag found
         analyzer.get_latest_tag = AsyncMock(return_value="v4.0.0")
         analyzer.get_commits_between_refs = AsyncMock(return_value=[])
@@ -121,8 +134,10 @@ class TestTagLogic:
 
     async def test_analyze_repository_main_branch_uses_latest(self, analyzer):
         """Test that analyze_repository still uses latest tag when to_tag is 'main'."""
-        # Mock the necessary methods
-        analyzer.mcp_session = AsyncMock()
+        # Initialize and mock the GitHub client
+        from spypip.github_client import GitHubMCPClient
+        analyzer.github_client = GitHubMCPClient()
+        analyzer.github_client.mcp_session = AsyncMock()
         analyzer.get_latest_tag = AsyncMock(return_value="v3.0.0")
         analyzer.get_commits_between_refs = AsyncMock(return_value=[])
         analyzer.analyze_commit_for_packaging_changes = AsyncMock(return_value=None)

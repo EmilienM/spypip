@@ -93,12 +93,12 @@ typing-extensions>=4.10.0
  typing-extensions>=4.10.0
 """
             
-            analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key")
-            analyzer.openai_client = MagicMock()
-            analyzer.openai_client.chat.completions.create.return_value = mock_response
+            analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key")
+            analyzer.llm_client.client = MagicMock()
+            analyzer.llm_client.client.chat.completions.create.return_value = mock_response
             
             # Test the regeneration
-            result = await analyzer._regenerate_patch_with_llm(patch_file, repo_dir, "main")
+            result = await analyzer.patch_manager.regenerate_patch_with_llm(patch_file, repo_dir, "main", analyzer.llm_client)
             
             assert result is not None
             assert "diff --git a/requirements.txt b/requirements.txt" in result
@@ -141,7 +141,7 @@ index 1234567..abcdefg 100644
             patch_file = Path(temp_dir) / "test.patch"
             patch_file.write_text(patch_content)
             
-            analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key")
+            analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key")
             
             # Test file extraction from the patch
             with open(patch_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -163,7 +163,7 @@ index 1234567..abcdefg 100644
     @pytest.mark.asyncio
     async def test_fix_patch_line_numbers(self):
         """Test that patch line numbers are correctly calculated."""
-        analyzer = PackagingVersionAnalyzer("owner", "repo", "fake-key")
+        analyzer = PackagingVersionAnalyzer("owner/repo", "fake-key")
 
         # Sample file content
         file_content = """astunparse
@@ -190,7 +190,7 @@ hypothesis"""
  hypothesis"""
 
         # Fix the line numbers
-        fixed_patch = analyzer._fix_patch_line_numbers(patch_with_wrong_numbers, current_files_content)
+        fixed_patch = analyzer.patch_manager.fix_patch_line_numbers(patch_with_wrong_numbers, current_files_content)
 
         # Should have corrected line numbers
         assert "@@ -1,6 +1,7 @@" in fixed_patch or "@@ -1,6 +1,8 @@" in fixed_patch
