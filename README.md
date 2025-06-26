@@ -2,7 +2,7 @@
 
 <img src="logo.png" alt="SpyPip Logo" width="200">
 
-SpyPip is a tool that analyzes GitHub repositories to compare commits between two versions/tags that touch Python packaging files and provides AI-powered summaries of packaging-related changes.
+SpyPip is a tool that analyzes Github and Gitlab repositories to compare commits between two versions/tags that touch Python packaging files and provides AI-powered summaries of packaging-related changes.
 
 ## Features
 
@@ -11,7 +11,7 @@ SpyPip is a tool that analyzes GitHub repositories to compare commits between tw
 - 🧠 **Custom File Monitoring**: Override default patterns by providing patch files with custom file paths to monitor
 - 🤖 **AI Summaries**: Leverages LLM to generate concise summaries of packaging changes
 - 🔧 **AI Patch Regeneration**: When patches fail to apply, automatically attempts to regenerate them using LLM analysis of the current codebase
-- 🔗 **GitHub Integration**: Seamlessly integrates with GitHub API via MCP (Model Context Protocol)
+- 🔗 **GitHub and Gitlab Integration**: Seamlessly integrates with Github and Gitlab API via MCP (Model Context Protocol)
 - 🧠 **Reasoning Model Support**: Compatible with reasoning models that include thinking steps in responses
 
 
