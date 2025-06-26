@@ -8,9 +8,8 @@ LABEL name="spypip" \
 
 WORKDIR /app
 
-# Install git for patch application functionality
 USER 0
-RUN dnf install -y git && dnf clean all
+RUN dnf install -y git nodejs npm && dnf clean all
 
 COPY . .
 

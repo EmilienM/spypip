@@ -4,6 +4,7 @@ Patch operations module for handling patch files and applications.
 
 import contextlib
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -463,8 +464,9 @@ class PatchManager:
 
     async def check_patch_application(
         self,
-        repo_owner: str,
-        repo_name: str,
+        service: str,
+        repo_owner_or_project: str,
+        repo_name: str = "",
         ref: str = "main",
         llm_client: LLMClient | None = None,
     ) -> bool:
@@ -472,8 +474,9 @@ class PatchManager:
         Check if patches can be applied to the repository at the specified ref.
 
         Args:
-            repo_owner: Repository owner
-            repo_name: Repository name
+            service: 'github' or 'gitlab'
+            repo_owner_or_project: Repository owner (GitHub) or project path (GitLab)
+            repo_name: Repository name (GitHub) or empty (GitLab)
             ref: The git reference to check patches against
             llm_client: Optional LLM client for patch regeneration
 
@@ -499,9 +502,14 @@ class PatchManager:
             return False
 
         if not self.json_output:
-            print(
-                f"Checking patch application for {repo_owner}/{repo_name} at ref '{ref}'"
-            )
+            if service == "gitlab":
+                print(
+                    f"Checking patch application for {repo_owner_or_project} (GitLab) at ref '{ref}'"
+                )
+            else:
+                print(
+                    f"Checking patch application for {repo_owner_or_project}/{repo_name} at ref '{ref}'"
+                )
 
         # Get patch files
         patch_files = []
@@ -533,22 +541,80 @@ class PatchManager:
                 # Clone the repository
                 if not self.json_output:
                     print("Cloning repository to temporary directory...")
-                clone_url = f"https://github.com/{repo_owner}/{repo_name}.git"
-
-                run_git_command(
-                    [
-                        "git",
-                        "clone",
-                        "--depth",
-                        "1",
-                        "--branch",
-                        ref,
-                        "--recurse-submodules",
-                        clone_url,
-                        str(repo_dir),
-                    ],
-                    timeout=DEFAULT_CLONE_TIMEOUT,
-                )
+                if service == "github":
+                    clone_url = (
+                        f"https://github.com/{repo_owner_or_project}/{repo_name}.git"
+                    )
+                    run_git_command(
+                        [
+                            "git",
+                            "clone",
+                            "--depth",
+                            "1",
+                            "--branch",
+                            ref,
+                            "--recurse-submodules",
+                            clone_url,
+                            str(repo_dir),
+                        ],
+                        timeout=DEFAULT_CLONE_TIMEOUT,
+                    )
+                elif service == "gitlab":
+                    clone_url = f"https://gitlab.com/{repo_owner_or_project}.git"
+                    # Setup authentication for GitLab
+                    gitlab_username = os.environ.get("GITLAB_USERNAME")
+                    gitlab_token = os.environ.get("GITLAB_PERSONAL_ACCESS_TOKEN")
+                    if not gitlab_username or not gitlab_token:
+                        raise RuntimeError(
+                            "GITLAB_USERNAME and GITLAB_PERSONAL_ACCESS_TOKEN must be set in the environment for GitLab patch application."
+                        )
+                    # Use a credential helper for this repo only
+                    # Write a .git-credentials file in the temp directory
+                    credentials_path = Path(temp_dir) / ".git-credentials"
+                    credentials_url = (
+                        f"https://{gitlab_username}:{gitlab_token}@gitlab.com"
+                    )
+                    credentials_path.write_text(credentials_url + "\n")
+                    # Configure git to use this credentials file
+                    run_git_command(
+                        [
+                            "git",
+                            "config",
+                            "--global",
+                            "credential.helper",
+                            f"store --file={credentials_path}",
+                        ]
+                    )
+                    try:
+                        run_git_command(
+                            [
+                                "git",
+                                "clone",
+                                "--depth",
+                                "1",
+                                "--branch",
+                                ref,
+                                "--recurse-submodules",
+                                clone_url,
+                                str(repo_dir),
+                            ],
+                            timeout=DEFAULT_CLONE_TIMEOUT,
+                        )
+                    finally:
+                        # Clean up credential helper config
+                        run_git_command(
+                            [
+                                "git",
+                                "config",
+                                "--global",
+                                "--unset",
+                                "credential.helper",
+                            ]
+                        )
+                        with contextlib.suppress(Exception):
+                            credentials_path.unlink()
+                else:
+                    raise ValueError(f"Unsupported service: {service}")
 
                 if not self.json_output:
                     print(SUCCESS_MESSAGES["REPO_CLONED"])
@@ -605,9 +671,9 @@ class PatchManager:
                     if failed_patches:
                         # Generate JSON output for Jira tickets
                         json_output_data = {
-                            "title": f"Failed to apply patches {repo_owner}/{repo_name} for '{ref}'",
+                            "title": f"Failed to apply patches {repo_owner_or_project}{('/' + repo_name) if repo_name else ''} for '{ref}'",
                             "content": self.generate_jira_content(
-                                failed_patches, ref, repo_owner, repo_name
+                                failed_patches, ref, repo_owner_or_project, repo_name
                             ),
                         }
                         print(json.dumps(json_output_data, indent=2))

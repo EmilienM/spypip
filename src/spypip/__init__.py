@@ -27,11 +27,15 @@ from .exceptions import (
     RepositoryError,
     SpyPipError,
 )
+from .github_client import GitHubMCPClient
+from .gitlab_client import GitLabMCPClient
 from .models import CommitSummary, PackagingChange, PatchFailure
 
 __all__ = [
     "CommitSummary",
     "ConfigurationError",
+    "GitHubMCPClient",
+    "GitLabMCPClient",
     "GitOperationError",
     "LLMError",
     "MCPError",

@@ -21,19 +21,19 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python -m spypip vllm-project/vllm
-  python -m spypip vllm-project/vllm --from-tag v1.0.0 --to-tag v1.1.0
-  python -m spypip vllm-project/vllm --from-tag v1.0.0
-  python -m spypip vllm-project/vllm --max-commits 100
-  python -m spypip vllm-project/vllm --patches-dir ./patches
-  python -m spypip vllm-project/vllm --patches-dir ./patches --check-patch-apply-only
-  python -m spypip vllm-project/vllm --patches-dir ./patches --check-patch-apply-only --json-output
+  python -m spypip https://gitlab.com/namespace/project
+  python -m spypip https://github.com/vllm-project/vllm --from-tag v1.0.0 --to-tag v1.1.0
+  python -m spypip https://github.com/vllm-project/vllm --from-tag v1.0.0
+  python -m spypip https://github.com/vllm-project/vllm --max-commits 100
+  python -m spypip https://github.com/vllm-project/vllm --patches-dir ./patches
+  python -m spypip https://github.com/vllm-project/vllm --patches-dir ./patches --check-patch-apply-only
+  python -m spypip https://github.com/vllm-project/vllm --patches-dir ./patches --check-patch-apply-only --json-output
         """,
     )
 
     parser.add_argument(
         "repository",
-        help="Repository in format 'owner/repo' (e.g., vllm-project/vllm)",
+        help="Repository URL (e.g., https://github.com/owner/repo or https://gitlab.com/namespace/project)",
     )
 
     parser.add_argument(
@@ -99,19 +99,27 @@ async def async_main():
 
     # Parse repository argument
     try:
-        repo_owner, repo_name = validate_repository_format(args.repository)
+        service, repo_owner, repo_name = validate_repository_format(args.repository)
     except ValueError as e:
         print(f"Error: {e}")
-        print("Example: python -m spypip vllm-project/vllm")
+        print(
+            "Example: python -m spypip https://github.com/owner/repo or https://gitlab.com/namespace/project"
+        )
         sys.exit(1)
 
     # Get required environment variables
     openai_api_key = get_required_env_var("OPENAI_API_KEY")
-    # Ensure GitHub token is available (used by the analyzer internally)
-    get_required_env_var(
-        "GITHUB_PERSONAL_ACCESS_TOKEN",
-        "This is required for the GitHub MCP server to authenticate with GitHub API",
-    )
+    # Ensure the correct token is available (used by the analyzer internally)
+    if service == "github":
+        get_required_env_var(
+            "GITHUB_PERSONAL_ACCESS_TOKEN",
+            "This is required for the GitHub MCP server to authenticate with GitHub API",
+        )
+    elif service == "gitlab":
+        get_required_env_var(
+            "GITLAB_PERSONAL_ACCESS_TOKEN",
+            "This is required for the GitLab MCP server to authenticate with GitLab API",
+        )
 
     # Run the analysis or patch check
     success = True

@@ -8,7 +8,7 @@ SpyPip is a tool that analyzes GitHub repositories to compare commits between tw
 
 - 🔍 **Smart Detection**: Automatically identifies commits that modify packaging files (requirements.txt, pyproject.toml, setup.py, Dockerfiles, etc.)
 - 🏷️ **Version Comparison**: Compare commits between two tags/versions or between latest tag and main branch
-- � **Custom File Monitoring**: Override default patterns by providing patch files with custom file paths to monitor
+- 🧠 **Custom File Monitoring**: Override default patterns by providing patch files with custom file paths to monitor
 - 🤖 **AI Summaries**: Leverages LLM to generate concise summaries of packaging changes
 - 🔧 **AI Patch Regeneration**: When patches fail to apply, automatically attempts to regenerate them using LLM analysis of the current codebase
 - 🔗 **GitHub Integration**: Seamlessly integrates with GitHub API via MCP (Model Context Protocol)
@@ -181,27 +181,40 @@ export OPENAI_ENDPOINT_URL="https://your-custom-inference-server.com"
 Run SpyPip by specifying the repository you want to analyze:
 
 ```bash
-python -m spypip owner/repository-name
+python -m spypip https://github.com/owner/repository-name
 ```
 
 For example (compares latest tag to main):
 ```bash
-python -m spypip vllm-project/vllm
+python -m spypip https://github.com/vllm-project/vllm
 ```
 
 Compare specific tags:
 ```bash
-python -m spypip vllm-project/vllm --from-tag v1.0.0 --to-tag v1.1.0
+python -m spypip https://github.com/vllm-project/vllm --from-tag v1.0.0 --to-tag v1.1.0
 ```
 
 Compare from specific tag to main:
 ```bash
-python -m spypip vllm-project/vllm --from-tag v1.0.0
+python -m spypip https://github.com/vllm-project/vllm --from-tag v1.0.0
 ```
 
 Limit the number of commits to analyze (default is 50):
 ```bash
-python -m spypip vllm-project/vllm --max-commits 100
+python -m spypip https://github.com/vllm-project/vllm --max-commits 100
+```
+
+# GitLab support
+
+You can also use GitLab repositories by specifying the full URL:
+
+```bash
+python -m spypip https://gitlab.com/namespace/project
+```
+
+Compare specific tags on GitLab:
+```bash
+python -m spypip https://gitlab.com/namespace/project --from-tag v1.0.0 --to-tag v1.1.0
 ```
 
 ### Custom File Monitoring with Patch Files
@@ -209,13 +222,19 @@ python -m spypip vllm-project/vllm --max-commits 100
 You can override the default list of packaging files by providing a directory containing patch files:
 
 ```bash
-python -m spypip owner/repository-name --patches-dir /path/to/patches
+python -m spypip https://github.com/owner/repository-name --patches-dir /path/to/patches
 ```
 
 Or combine with version comparison:
 
 ```bash
-python -m spypip owner/repository-name --from-tag v1.0.0 --to-tag v1.1.0 --patches-dir /path/to/patches
+python -m spypip https://github.com/owner/repository-name --from-tag v1.0.0 --to-tag v1.1.0 --patches-dir /path/to/patches
+```
+
+# GitLab example with patches
+
+```bash
+python -m spypip https://gitlab.com/namespace/project --patches-dir /path/to/patches
 ```
 
 ### Patch Validation Mode
@@ -223,19 +242,25 @@ python -m spypip owner/repository-name --from-tag v1.0.0 --to-tag v1.1.0 --patch
 Before running the full analysis, you can validate that your patch files can be applied to the target repository using the `--check-patch-apply-only` option:
 
 ```bash
-python -m spypip owner/repository-name --patches-dir /path/to/patches --check-patch-apply-only
+python -m spypip https://github.com/owner/repository-name --patches-dir /path/to/patches --check-patch-apply-only
 ```
 
 Or test against a specific branch/tag:
 
 ```bash
-python -m spypip owner/repository-name --patches-dir /path/to/patches --check-patch-apply-only --to-tag v2.0.0
+python -m spypip https://github.com/owner/repository-name --patches-dir /path/to/patches --check-patch-apply-only --to-tag v2.0.0
 ```
 
 For integration with CI/CD pipelines or automation tools, you can output failed patches in JSON format suitable for creating tickets or reports:
 
 ```bash
-python -m spypip owner/repository-name --patches-dir /path/to/patches --check-patch-apply-only --json-output
+python -m spypip https://github.com/owner/repository-name --patches-dir /path/to/patches --check-patch-apply-only --json-output
+```
+
+# GitLab patch validation example
+
+```bash
+python -m spypip https://gitlab.com/namespace/project --patches-dir /path/to/patches --check-patch-apply-only
 ```
 
 This mode will:
@@ -316,12 +341,16 @@ SpyPip supports loading environment variables from `.env` files. It searches for
 **Required Variables:**
 - `OPENAI_API_KEY`: Required for AI summary generation
 - `GITHUB_PERSONAL_ACCESS_TOKEN`: Required for GitHub API access
+- `GITLAB_PERSONAL_ACCESS_TOKEN`: Required for GitLab API access (when analyzing GitLab repositories)
+- `GITLAB_USERNAME`: Your GitLab username (required when testing patches)
 
 **Optional Variables:**
 - `OPENAI_ENDPOINT_URL`: Override the default OpenAI inference server URL (defaults to `https://models.github.ai/inference`)
 - `MODEL_NAME`: Specify the model to use for AI analysis (defaults to `openai/gpt-4.1`)
 
-**Note:** Environment variables set in your shell will take precedence over those in `.env` files.
+**Note:**
+- When analyzing GitLab repositories (URLs starting with `https://gitlab.com/`), you must set both `GITLAB_PERSONAL_ACCESS_TOKEN` and `GITLAB_USERNAME` in your environment or `.env` file. These are used to authenticate with the GitLab API and are required for accessing private repositories or for higher rate limits.
+- Environment variables set in your shell will take precedence over those in `.env` files.
 
 ## Contributing
 

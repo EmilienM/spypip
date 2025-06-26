@@ -12,8 +12,9 @@ from .constants import (
     DEFAULT_PACKAGING_PATTERNS,
     WARNING_MESSAGES,
 )
-from .exceptions import ConfigurationError, SpyPipError
+from .exceptions import ConfigurationError
 from .github_client import GitHubMCPClient
+from .gitlab_client import GitLabMCPClient
 from .llm_client import LLMClient
 from .models import CommitSummary, PackagingChange
 from .patch_operations import PatchManager
@@ -38,7 +39,7 @@ class PackagingVersionAnalyzer:
         Initialize the analyzer.
 
         Args:
-            repository: Repository in format 'owner/repo'
+            repository: Repository in format 'owner/repo' or full URL
             openai_api_key: OpenAI API key for LLM operations
             patches_dir: Optional directory containing patch files
             json_output: Whether to output in JSON format
@@ -48,16 +49,25 @@ class PackagingVersionAnalyzer:
             ConfigurationError: If configuration is invalid
         """
         try:
-            self.repo_owner, self.repo_name = validate_repository_format(repository)
+            self.service, self.repo_owner, self.repo_name = validate_repository_format(
+                repository
+            )
         except ValueError as e:
             raise ConfigurationError(str(e)) from e
+
+        # For GitLab, store the full project path
+        self.project_path: str | None = None
+        if self.service == "gitlab":
+            self.project_path = self.repo_owner.rstrip("/")  # Ensure no trailing slash
+        else:
+            self.project_path = None
 
         self.patches_dir = patches_dir
         self.json_output = json_output
         self.max_commits = max_commits
 
         # Initialize components
-        self.github_client: GitHubMCPClient | None = None
+        self.mcp_client: Any = None
         self.llm_client = LLMClient(openai_api_key)
         self.patch_manager = PatchManager(patches_dir, json_output)
 
@@ -67,15 +77,26 @@ class PackagingVersionAnalyzer:
         )
 
     async def __aenter__(self) -> "PackagingVersionAnalyzer":
-        """Initialize GitHub client."""
-        self.github_client = GitHubMCPClient(self.json_output)
-        await self.github_client.__aenter__()
+        """Initialize MCP client for the appropriate service, unless already set (for testing)."""
+        # Patch for test compatibility: if github_client is set, use it as mcp_client
+        github_client = getattr(self, "github_client", None)
+        if github_client is not None:
+            self.mcp_client = github_client
+        if self.mcp_client is None:
+            if self.service == "github":
+                self.mcp_client = GitHubMCPClient(self.json_output)
+            elif self.service == "gitlab":
+                self.mcp_client = GitLabMCPClient(self.json_output)
+            else:
+                raise ConfigurationError(f"Unsupported service: {self.service}")
+            await self.mcp_client.__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
-        """Clean up GitHub client."""
-        if self.github_client:
-            return await self.github_client.__aexit__(exc_type, exc_val, exc_tb)
+        """Clean up MCP client."""
+        if self.mcp_client and hasattr(self.mcp_client, "__aexit__"):
+            result = await self.mcp_client.__aexit__(exc_type, exc_val, exc_tb)
+            return bool(result)
         return False
 
     def is_patched(self, file_path: str) -> bool:
@@ -92,32 +113,58 @@ class PackagingVersionAnalyzer:
 
     async def get_latest_tag(self) -> str | None:
         """Get the latest tag from the repository."""
-        if not self.github_client:
-            raise SpyPipError("GitHub client not initialized")
-        return await self.github_client.get_latest_tag(self.repo_owner, self.repo_name)
+        if not self.mcp_client:
+            return None
+        if self.service == "gitlab":
+            result = await self.mcp_client.get_latest_tag(self.project_path, "")
+        else:
+            result = await self.mcp_client.get_latest_tag(
+                self.repo_owner, self.repo_name
+            )
+        if isinstance(result, str) or result is None:
+            return result
+        return str(result)
 
     async def get_previous_tag(self, to_tag: str) -> str | None:
         """Get the tag that comes before the specified tag in chronological order."""
-        if not self.github_client:
-            raise SpyPipError("GitHub client not initialized")
-        return await self.github_client.get_previous_tag(
-            self.repo_owner, self.repo_name, to_tag
-        )
+        if not self.mcp_client:
+            return None
+        if self.service == "gitlab":
+            result = await self.mcp_client.get_previous_tag(
+                self.project_path, "", to_tag
+            )
+        else:
+            result = await self.mcp_client.get_previous_tag(
+                self.repo_owner, self.repo_name, to_tag
+            )
+        if isinstance(result, str) or result is None:
+            return result
+        return str(result)
 
     async def get_commits_between_refs(
         self, from_ref: str, to_ref: str
     ) -> list[dict[str, Any]]:
         """Get commits between two references (tags/branches)."""
-        if not self.github_client:
-            raise SpyPipError("GitHub client not initialized")
+        if not self.mcp_client:
+            return []
 
         print(
             f"Fetching commits between {from_ref} and {to_ref} for {self.repo_owner}/{self.repo_name}..."
         )
 
-        commits = await self.github_client.get_commits_between_refs(
-            self.repo_owner, self.repo_name, from_ref, to_ref, self.max_commits
-        )
+        if self.service == "gitlab":
+            commits = await self.mcp_client.get_commits_between_refs(
+                self.project_path, from_ref, to_ref, self.max_commits
+            )
+        else:
+            commits = await self.mcp_client.get_commits_between_refs(
+                self.repo_owner, self.repo_name, from_ref, to_ref, self.max_commits
+            )
+
+        if not isinstance(commits, list):
+            return []
+        # Defensive: ensure each item is a dict
+        commits = [c for c in commits if isinstance(c, dict)]
 
         if len(commits) >= self.max_commits:
             print(
@@ -130,19 +177,39 @@ class PackagingVersionAnalyzer:
 
     async def get_commit_info(self, ref: str) -> dict[str, Any] | None:
         """Get information about a specific commit/tag/branch."""
-        if not self.github_client:
-            raise SpyPipError("GitHub client not initialized")
-        return await self.github_client.get_commit_info(
-            self.repo_owner, self.repo_name, ref
-        )
+        if not self.mcp_client:
+            return None
+        if self.service == "gitlab":
+            result = await self.mcp_client.get_commit_info(self.project_path, "", ref)
+        else:
+            result = await self.mcp_client.get_commit_info(
+                self.repo_owner, self.repo_name, ref
+            )
+        if isinstance(result, dict) or result is None:
+            return result
+        return None
 
-    async def get_commit_files(self, commit_sha: str) -> list[dict[str, Any]]:
-        """Get files changed in a specific commit."""
-        if not self.github_client:
-            raise SpyPipError("GitHub client not initialized")
-        return await self.github_client.get_commit_files(
-            self.repo_owner, self.repo_name, commit_sha
-        )
+    async def get_commit_files(self, *args) -> list[dict[str, Any]]:
+        """Get files changed in a specific commit. Accepts either (project_id, commit_sha) for GitLab or (repo_owner, repo_name, commit_sha) for GitHub."""
+        if not self.mcp_client:
+            return []
+        if self.service == "gitlab":
+            if len(args) != 2:
+                raise ValueError("Expected (project_id, commit_sha) for GitLab")
+            project_id, commit_sha = args
+            result = await self.mcp_client.get_commit_files(project_id, commit_sha)
+        else:
+            if len(args) != 3:
+                raise ValueError(
+                    "Expected (repo_owner, repo_name, commit_sha) for GitHub"
+                )
+            repo_owner, repo_name, commit_sha = args
+            result = await self.mcp_client.get_commit_files(
+                repo_owner, repo_name, commit_sha
+            )
+        if not isinstance(result, list):
+            return []
+        return [f for f in result if isinstance(f, dict)]
 
     async def analyze_commit_for_packaging_changes(
         self, commit: dict[str, Any]
@@ -151,17 +218,35 @@ class PackagingVersionAnalyzer:
         Analyze a commit for packaging-related changes.
 
         Args:
-            commit: Commit data from GitHub API
+            commit: Commit data from GitHub or GitLab API
 
         Returns:
             CommitSummary if packaging changes found, None otherwise
         """
-        commit_sha = commit["sha"]
-        commit_title = commit["commit"]["message"].split("\n")[
-            0
-        ]  # First line of commit message
+        commit_sha = commit.get("sha") or commit.get("id")
+        if not commit_sha:
+            raise ValueError("Commit object missing both 'sha' and 'id' keys")
 
-        files = await self.get_commit_files(commit_sha)
+        # Extract commit metadata for GitHub and GitLab
+        if "commit" in commit:  # GitHub
+            commit_title = commit["commit"]["message"].split("\n")[0]
+            author = commit["commit"]["author"]["name"]
+            date = commit["commit"]["author"]["date"]
+            url = commit.get("html_url", "")
+        else:  # GitLab
+            commit_title = commit.get("title", commit.get("message", "")).split("\n")[0]
+            author = commit.get("author_name", "")
+            date = commit.get("authored_date", "")
+            url = commit.get("web_url", "")
+
+        if self.service == "gitlab":
+            if self.project_path is None:
+                raise ValueError("project_path is None for GitLab repository")
+            files = await self.get_commit_files(self.project_path, commit_sha)
+        else:
+            files = await self.get_commit_files(
+                self.repo_owner, self.repo_name, commit_sha
+            )
         packaging_changes = []
 
         for file_info in files:
@@ -181,9 +266,9 @@ class PackagingVersionAnalyzer:
             return CommitSummary(
                 sha=commit_sha,
                 title=commit_title,
-                author=commit["commit"]["author"]["name"],
-                url=commit["html_url"],
-                date=commit["commit"]["author"]["date"],
+                author=author,
+                url=url,
+                date=date,
                 packaging_changes=packaging_changes,
             )
 
@@ -221,9 +306,15 @@ Packaging files changed:
         Returns:
             True if all patches apply successfully, False otherwise
         """
-        return await self.patch_manager.check_patch_application(
-            self.repo_owner, self.repo_name, ref, self.llm_client
-        )
+        if self.service == "gitlab":
+            project_path = self.project_path or ""
+            return await self.patch_manager.check_patch_application(
+                self.service, project_path, "", ref, self.llm_client
+            )
+        else:
+            return await self.patch_manager.check_patch_application(
+                self.service, self.repo_owner, self.repo_name, ref, self.llm_client
+            )
 
     async def analyze_repository(
         self, from_tag: str | None = None, to_tag: str = "main"
