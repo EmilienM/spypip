@@ -7,6 +7,7 @@ Entry point for running SpyPip as a module.
 
 import argparse
 import asyncio
+import logging
 import sys
 
 from .analyzer import PackagingVersionAnalyzer
@@ -151,6 +152,7 @@ async def async_main():
 
 def main():
     """Synchronous entry point for the spypip command."""
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     asyncio.run(async_main())
 
 
