@@ -305,24 +305,44 @@ def clean_reasoning_response(content: str) -> str:
     return cleaned_content
 
 
-def validate_repository_format(repository: str) -> tuple[str, str]:
+def validate_repository_format(repository: str) -> tuple[str, str, str]:
     """
     Validate and parse repository format.
 
     Args:
-        repository: Repository in format 'owner/repo'
+        repository: Repository in format 'owner/repo' or full URL
 
     Returns:
-        Tuple of (owner, repo_name)
+        For GitHub: (service, owner, repo)
+        For GitLab: (service, project_path, "")
 
     Raises:
         ValueError: If repository format is invalid
     """
-    if "/" not in repository:
-        raise ValueError("Repository must be in format 'owner/repo'")
-
-    parts = repository.split("/", 1)
-    if len(parts) != 2 or not parts[0] or not parts[1]:
-        raise ValueError("Repository must be in format 'owner/repo'")
-
-    return parts[0], parts[1]
+    # Support full URLs for GitHub and GitLab
+    if repository.startswith("https://"):
+        if "github.com/" in repository:
+            service = "github"
+            parts = repository.split("github.com/")[-1].split("/")
+            if len(parts) < 2:
+                raise ValueError(
+                    "Repository URL must be in format 'https://github.com/owner/repo' or 'https://gitlab.com/namespace/project'"
+                )
+            owner_or_namespace = parts[0]
+            repo_or_project = parts[1]
+            return service, owner_or_namespace, repo_or_project
+        elif "gitlab.com/" in repository:
+            service = "gitlab"
+            project_path = repository.split("gitlab.com/")[-1].strip("/")
+            return service, project_path, ""
+        else:
+            raise ValueError("Repository URL must be from github.com or gitlab.com")
+    # Support short form for GitHub (default)
+    if "/" in repository:
+        parts = repository.split("/", 1)
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise ValueError("Repository must be in format 'owner/repo'")
+        return "github", parts[0], parts[1]
+    raise ValueError(
+        "Repository must be in format 'owner/repo' or a full GitHub/GitLab URL"
+    )

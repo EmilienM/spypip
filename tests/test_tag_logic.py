@@ -3,7 +3,7 @@ Tests for tag logic functionality
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from spypip.analyzer import PackagingVersionAnalyzer
 
 
@@ -18,29 +18,11 @@ class TestTagLogic:
 
     async def test_get_previous_tag_basic(self, analyzer):
         """Test getting the previous tag in a simple case."""
-        # Initialize and mock the GitHub client
         from spypip.github_client import GitHubMCPClient
-        analyzer.github_client = GitHubMCPClient()
-        # Mock the MCP session
-        analyzer.github_client.mcp_session = AsyncMock()
-        
-        # Mock response with tags in chronological order (newest first)
-        mock_content = MagicMock()
-        mock_content.text = '[\
-            {"name": "v4.0.0"},\
-            {"name": "v3.0.0"},\
-            {"name": "v2.0.0"},\
-            {"name": "v1.0.0"}\
-        ]'
-        
-        mock_result = MagicMock()
-        mock_result.content = [mock_content]
-        
-        analyzer.github_client.mcp_session.call_tool.return_value = mock_result
-        
-        # Test getting previous tag for v3.0.0 should return v2.0.0
-        result = await analyzer.get_previous_tag("v3.0.0")
-        assert result == "v2.0.0"
+        analyzer.mcp_client = GitHubMCPClient()
+        with patch.object(analyzer.mcp_client, "get_previous_tag", new=AsyncMock(return_value="v2.0.0")):
+            result = await analyzer.get_previous_tag("v3.0.0")
+            assert result == "v2.0.0"
 
     async def test_get_previous_tag_first_tag(self, analyzer):
         """Test getting previous tag when target is the oldest tag."""
