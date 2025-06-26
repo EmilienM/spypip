@@ -242,37 +242,70 @@ class PackagingVersionAnalyzer:
         if self.service == "gitlab":
             if self.project_path is None:
                 raise ValueError("project_path is None for GitLab repository")
-            files = await self.get_commit_files(self.project_path, commit_sha)
+            # Get the commit info and diffs (as MCP returns them)
+            commit_info = commit  # This is a dict from MCP, may contain 'diffs'
+            diffs = commit_info.get("diffs")
+            if diffs is None:
+                # fallback: try to fetch diffs via get_commit_files
+                diffs = await self.get_commit_files(self.project_path, commit_sha)
+            packaging_changes = []
+            for diff in diffs:
+                # Check both old_path and new_path
+                for file_path in [diff.get("old_path", ""), diff.get("new_path", "")]:
+                    if file_path and self.is_patched(file_path):
+                        change = PackagingChange(
+                            file_path=file_path,
+                            change_type=(
+                                "added"
+                                if diff.get("new_file")
+                                else "removed"
+                                if diff.get("deleted_file")
+                                else "renamed"
+                                if diff.get("renamed_file")
+                                else "modified"
+                            ),
+                            additions=0,  # Not available in diff, could be parsed from diff text if needed
+                            deletions=0,  # Not available in diff, could be parsed from diff text if needed
+                            patch=diff.get("diff", ""),
+                        )
+                        packaging_changes.append(change)
+                        break  # Only add once per diff
+            if packaging_changes:
+                return CommitSummary(
+                    sha=commit_sha,
+                    title=commit_title,
+                    author=author,
+                    url=url,
+                    date=date,
+                    packaging_changes=packaging_changes,
+                )
+            return None
         else:
             files = await self.get_commit_files(
                 self.repo_owner, self.repo_name, commit_sha
             )
-        packaging_changes = []
-
-        for file_info in files:
-            file_path = file_info.get("filename", "")
-
-            if self.is_patched(file_path):
-                change = PackagingChange(
-                    file_path=file_path,
-                    change_type=file_info.get("status", "modified"),
-                    additions=file_info.get("additions", 0),
-                    deletions=file_info.get("deletions", 0),
-                    patch=file_info.get("patch", ""),
+            packaging_changes = []
+            for file_info in files:
+                file_path = file_info.get("filename", "")
+                if self.is_patched(file_path):
+                    change = PackagingChange(
+                        file_path=file_path,
+                        change_type=file_info.get("status", "modified"),
+                        additions=file_info.get("additions", 0),
+                        deletions=file_info.get("deletions", 0),
+                        patch=file_info.get("patch", ""),
+                    )
+                    packaging_changes.append(change)
+            if packaging_changes:
+                return CommitSummary(
+                    sha=commit_sha,
+                    title=commit_title,
+                    author=author,
+                    url=url,
+                    date=date,
+                    packaging_changes=packaging_changes,
                 )
-                packaging_changes.append(change)
-
-        if packaging_changes:
-            return CommitSummary(
-                sha=commit_sha,
-                title=commit_title,
-                author=author,
-                url=url,
-                date=date,
-                packaging_changes=packaging_changes,
-            )
-
-        return None
+            return None
 
     def generate_ai_summary(self, commit_summary: CommitSummary) -> str:
         """Generate AI summary for a commit with packaging changes."""
